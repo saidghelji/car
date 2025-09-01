@@ -1,147 +1,59 @@
-import React, { useState } from 'react';
-import { Plus, Search, Filter, FileText, Car, User2, Calendar, Trash2 } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Search, Car, Trash2, FileText, Calendar, X } from 'lucide-react';
 import EditButton from '../components/EditButton';
+import CloseButton from '../components/CloseButton';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import { fr } from 'date-fns/locale';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+import { Customer } from './Customers';
+import { Vehicle } from './Vehicles';
 
-type ReservationStatus = 'en_cours' | 'validee' | 'annulee' | 'ratee';
+registerLocale('fr', fr);
 
-interface Client {
-  id: string;
-  name: string;
-  permis: string;
-  validite: string;
-  email: string;
-  phone: string;
-}
+const isOnlySpaces = (value: string | null | undefined): boolean => {
+  return typeof value === 'string' && value.trim().length === 0;
+};
 
-interface Vehicle {
-  id: string;
-  matricule: string;
-  model: string;
-  pricePerDay: number;
-  isAvailable: boolean;
-}
+export type ReservationStatus = 'en_cours' | 'validee' | 'annulee' | 'fin_de_periode';
 
-interface Reservation {
-  id: string;
+export interface Reservation {
+  _id: string;
   reservationNumber: string;
   reservationDate: string;
   startDate: string;
   endDate: string;
   duration: number;
   status: ReservationStatus;
-  client: Client;
-  vehicle: Vehicle;
+  customer: Customer | string;
+  vehicle: Vehicle | string;
   totalAmount: number;
   advance: number;
   notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-// Sample data
-const sampleClients: Client[] = [
-  {
-    id: '1',
-    name: 'Jean Dupont',
-    permis: 'P123456789',
-    validite: '2026-05-15',
-    email: 'jean.dupont@example.com',
-    phone: '06 12 34 56 78'
-  },
-  {
-    id: '2',
-    name: 'Marie Martin',
-    permis: 'P987654321',
-    validite: '2026-08-20',
-    email: 'marie.martin@example.com',
-    phone: '06 23 45 67 89'
-  },
-  {
-    id: '3',
-    name: 'Pierre Blanc',
-    permis: 'P456789123',
-    validite: '2025-12-10',
-    email: 'pierre.blanc@example.com',
-    phone: '06 34 56 78 90'
-  }
-];
+const formatDateToFrench = (dateString: string | undefined): string => {
+  if (!dateString) return '';
+  const date = new Date(dateString);
+  if (isNaN(date.getTime())) return '';
+  return date.toLocaleDateString('fr-FR', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  });
+};
 
-const sampleVehicles: Vehicle[] = [
-  {
-    id: '1',
-    matricule: 'AB-123-CD',
-    model: 'Renault Clio',
-    pricePerDay: 350,
-    isAvailable: true
-  },
-  {
-    id: '2',
-    matricule: 'EF-456-GH',
-    model: 'Peugeot 208',
-    pricePerDay: 400,
-    isAvailable: true
-  },
-  {
-    id: '3',
-    matricule: 'IJ-789-KL',
-    model: 'Dacia Logan',
-    pricePerDay: 300,
-    isAvailable: false
-  }
-];
-
-const initialReservations: Reservation[] = [
-  {
-    id: '1',
-    reservationNumber: 'RES-2025-001',
-    reservationDate: '2025-05-07',
-    startDate: '2025-05-15',
-    endDate: '2025-05-22',
-    duration: 7,
-    status: 'en_cours',
-    client: sampleClients[0],
-    vehicle: sampleVehicles[0],
-    totalAmount: 2450,
-    advance: 500,
-    notes: 'Client régulier'
-  },
-  {
-    id: '2',
-    reservationNumber: 'RES-2025-002',
-    reservationDate: '2025-05-06',
-    startDate: '2025-05-20',
-    endDate: '2025-05-23',
-    duration: 3,
-    status: 'validee',
-    client: sampleClients[1],
-    vehicle: sampleVehicles[1],
-    totalAmount: 1200,
-    advance: 1200
-  },
-  {
-    id: '3',
-    reservationNumber: 'RES-2025-003',
-    reservationDate: '2025-05-05',
-    startDate: '2025-05-12',
-    endDate: '2025-05-26',
-    duration: 14,
-    status: 'annulee',
-    client: sampleClients[2],
-    vehicle: sampleVehicles[2],
-    totalAmount: 4200,
-    advance: 1000,
-    notes: 'Annulation 24h avant'
-  }
-];
-
-const StatusBadge = ({ status }: { status: ReservationStatus }) => {
+export const StatusBadge = ({ status }: { status: ReservationStatus }) => {
   const statusConfig = {
     en_cours: { color: 'bg-blue-100 text-blue-800', label: 'En cours' },
     validee: { color: 'bg-green-100 text-green-800', label: 'Validée' },
     annulee: { color: 'bg-red-100 text-red-800', label: 'Annulée' },
-    ratee: { color: 'bg-gray-100 text-gray-800', label: 'Ratée' }
+    fin_de_periode: { color: 'bg-gray-100 text-gray-800', label: 'Fin de période' }
   };
-
   const config = statusConfig[status];
-
   return (
     <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded-full ${config.color}`}>
       {config.label}
@@ -149,135 +61,222 @@ const StatusBadge = ({ status }: { status: ReservationStatus }) => {
   );
 };
 
-const Reservations: React.FC = () => {
-  const [reservations, setReservations] = useState<Reservation[]>(initialReservations);
-  const [showNewReservationModal, setShowNewReservationModal] = useState(false);
+const API_URL = 'http://localhost:5000';
+
+const Reservations = () => {
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<'all' | ReservationStatus>('all');
+  const [selectedDateFilter, setSelectedDateFilter] = useState<Date | null>(null);
+  const [statusFilter, setStatusFilter] = useState<ReservationStatus | ''>('');
+  const [showNewReservationModal, setShowNewReservationModal] = useState(false);
   const [selectedReservation, setSelectedReservation] = useState<Reservation | null>(null);
-  const [selectedClient, setSelectedClient] = useState<Client | null>(null);
-  const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [editMode, setEditMode] = useState(false);
   const [editedReservation, setEditedReservation] = useState<Reservation | null>(null);
+  const [editValidationErrors, setEditValidationErrors] = useState<{[key: string]: string}>({});
 
-  // Handle edit functions
-  const handleEditClick = () => {
-    if (selectedReservation) {
-      setEditedReservation({ ...selectedReservation });
-      setEditMode(true);
+  const API_URL_RESERVATIONS = `${API_URL}/api/reservations`;
+  const API_URL_CUSTOMERS = `${API_URL}/api/customers`;
+  const API_URL_VEHICLES = `${API_URL}/api/vehicles`;
+
+  const handleViewDetails = (reservation: Reservation) => {
+    if (editMode) {
+      if (confirm('Vous avez des modifications non enregistrées. Voulez-vous continuer et perdre ces modifications?')) {
+        setSelectedReservation(reservation);
+        setEditMode(false);
+        setEditedReservation(null);
+        setEditValidationErrors({});
+      }
+    } else {
+      setSelectedReservation(reservation);
     }
   };
 
-  const handleSaveEdit = () => {
-    if (editedReservation) {
-      setReservations(reservations.map(reservation =>
-        reservation.id === editedReservation.id ? editedReservation : reservation
-      ));
-      setSelectedReservation(editedReservation);
+  const fetchData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [reservationsRes, customersRes, vehiclesRes] = await Promise.all([
+        axios.get<Reservation[]>(API_URL_RESERVATIONS),
+        axios.get<Customer[]>(API_URL_CUSTOMERS),
+        axios.get<Vehicle[]>(API_URL_VEHICLES)
+      ]);
+
+      const populatedReservations = reservationsRes.data.map(res => {
+        const customer = customersRes.data.find(c => c._id === (res.customer as any));
+        const vehicle = vehiclesRes.data.find(v => v._id === (res.vehicle as any));
+        return { ...res, customer: customer || res.customer, vehicle: vehicle || res.vehicle };
+      });
+
+      setReservations(populatedReservations);
+      setCustomers(customersRes.data);
+      setVehicles(vehiclesRes.data);
+    } catch (err) {
+      console.error('Error fetching data:', err);
+      setError('Failed to load data.');
+      toast.error('Failed to load data.');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
+
+  const filteredReservations = reservations.filter(reservation => {
+    const searchString = searchTerm.toLowerCase();
+    const currentCustomer = typeof reservation.customer === 'object' && reservation.customer ? reservation.customer : null;
+    const customerName = currentCustomer ? `${currentCustomer.prenomFr || ''} ${currentCustomer.nomFr || ''}`.toLowerCase() : '';
+
+    const currentVehicle = typeof reservation.vehicle === 'object' && reservation.vehicle ? reservation.vehicle : null;
+    const vehicleModel = currentVehicle ? (currentVehicle.model || '').toLowerCase() : '';
+
+    const matchesSearch = (
+      reservation.reservationNumber.toLowerCase().includes(searchString) ||
+      customerName.includes(searchString) ||
+      vehicleModel.includes(searchString)
+    );
+
+    const reservationDate = new Date(reservation.reservationDate);
+    const matchesDate = selectedDateFilter ?
+      reservationDate.toDateString() === selectedDateFilter.toDateString() :
+      true;
+
+    const matchesStatus = statusFilter ? reservation.status === statusFilter : true;
+
+    return matchesSearch && matchesDate && matchesStatus;
+  });
+
+  const handleAddReservation = async (data: Partial<Reservation>) => {
+    try {
+      const response = await axios.post<Reservation>(API_URL_RESERVATIONS, data);
+      const newReservation = response.data;
+      const customer = customers.find(c => c._id === (newReservation.customer as any));
+      const vehicle = vehicles.find(v => v._id === (newReservation.vehicle as any));
+      const populatedReservation = { ...newReservation, customer: customer || newReservation.customer, vehicle: vehicle || newReservation.vehicle };
+
+      setReservations([...reservations, populatedReservation]);
+      setShowNewReservationModal(false);
+      toast.success('Reservation added successfully.');
+    } catch (err) {
+      console.error('Error adding reservation:', err);
+      toast.error('Failed to add reservation.');
+    }
+  };
+
+  const handleUpdateReservation = async (data: Partial<Reservation>) => {
+    if (!selectedReservation || !editedReservation) return;
+
+    const errors: {[key: string]: string} = {};
+    if (editedReservation.notes && isOnlySpaces(editedReservation.notes)) {
+      errors.notes = 'Les notes ne peuvent pas contenir uniquement des espaces.';
+    }
+    if (editedReservation.advance !== undefined && editedReservation.advance < 0) {
+      errors.advance = 'L\'avance ne peut pas être inférieure à 0.';
+    }
+    setEditValidationErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      toast.error('Veuillez corriger les erreurs de validation.');
+      return;
+    }
+
+    try {
+      const response = await axios.put<Reservation>(`${API_URL_RESERVATIONS}/${selectedReservation._id}`, data);
+      const updatedReservation = response.data;
+      const customer = customers.find(c => c._id === (updatedReservation.customer as any));
+      const vehicle = vehicles.find(v => v._id === (updatedReservation.vehicle as any));
+      const populatedReservation = { ...updatedReservation, customer: customer || updatedReservation.customer, vehicle: vehicle || updatedReservation.vehicle };
+
+      setReservations(reservations.map(res => (res._id === populatedReservation._id ? populatedReservation : res)));
+      setSelectedReservation(populatedReservation);
       setEditMode(false);
       setEditedReservation(null);
+      setEditValidationErrors({});
+      toast.success('Reservation updated successfully.');
+    } catch (err) {
+      console.error('Error updating reservation:', err);
+      toast.error('Failed to update reservation.');
     }
   };
 
-  const handleCancelEdit = () => {
-    setEditMode(false);
-    setEditedReservation(null);
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+
+  const handleDeleteConfirmation = (reservationId: string) => {
+    setSelectedReservation(reservations.find(r => r._id === reservationId) || null);
+    setShowDeleteConfirmation(true);
   };
 
-  const handleDeleteReservation = (reservationId: string, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    if (confirm('Êtes-vous sûr de vouloir supprimer cette réservation ?')) {
-      setReservations(reservations.filter(reservation => reservation.id !== reservationId));
-      if (selectedReservation?.id === reservationId) {
+  const handleDeleteReservation = async () => {
+    if (selectedReservation) {
+      try {
+        await axios.delete(`${API_URL_RESERVATIONS}/${selectedReservation._id}`);
+        setReservations(reservations.filter(r => r._id !== selectedReservation._id));
         setSelectedReservation(null);
+        setShowDeleteConfirmation(false);
+        toast.success('Reservation deleted successfully.');
+      } catch (err) {
+        console.error('Error deleting reservation:', err);
+        toast.error('Failed to delete reservation.');
       }
     }
   };
 
-  const handleInputChange = (field: string, value: any) => {
-    if (editedReservation) {
-      const updatedReservation = { ...editedReservation } as Reservation;
-      
-      // Handle nested objects
-      if (field.includes('.')) {
-        const [parentField, childField] = field.split('.');
-        if (parentField === 'client') {
-          updatedReservation.client = {
-            ...updatedReservation.client,
-            [childField]: value
-          };
-        } else if (parentField === 'vehicle') {
-          updatedReservation.vehicle = {
-            ...updatedReservation.vehicle,
-            [childField]: childField === 'pricePerDay' ? Number(value) : value
-          };
-        }
-      } else if (field === 'startDate' || field === 'endDate') {
-        // Update duration when dates change
-        updatedReservation[field] = value as string;
+  useEffect(() => {
+    if (editMode && editedReservation && editedReservation.startDate && editedReservation.endDate) {
+      const start = new Date(editedReservation.startDate);
+      const end = new Date(editedReservation.endDate);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end >= start) {
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
         
-        if (field === 'startDate' && updatedReservation.endDate) {
-          const start = new Date(value);
-          const end = new Date(updatedReservation.endDate);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          updatedReservation.duration = diffDays;
-          
-          // Update total amount based on duration and price per day
-          updatedReservation.totalAmount = updatedReservation.vehicle.pricePerDay * diffDays;
-        } else if (field === 'endDate' && updatedReservation.startDate) {
-          const start = new Date(updatedReservation.startDate);
-          const end = new Date(value);
-          const diffTime = Math.abs(end.getTime() - start.getTime());
-          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-          updatedReservation.duration = diffDays;
-          
-          // Update total amount based on duration and price per day
-          updatedReservation.totalAmount = updatedReservation.vehicle.pricePerDay * diffDays;
+        let newTotalAmount = editedReservation.totalAmount;
+        let vehicleId = null;
+        if (typeof editedReservation.vehicle === 'object' && editedReservation.vehicle) {
+          vehicleId = editedReservation.vehicle._id;
+        } else if (typeof editedReservation.vehicle === 'string') {
+          vehicleId = editedReservation.vehicle;
         }
-      } else if (field === 'advance') {
-        // Convert to number for amount
-        updatedReservation.advance = parseFloat(value);
-      } else if (field === 'totalAmount') {
-        // Convert to number for amount
-        updatedReservation.totalAmount = parseFloat(value);
-      } else {
-        // For other fields, just update the value
-        // Use type assertion based on the field type
-        if (field === 'status') {
-          updatedReservation.status = value as ReservationStatus;
-        } else if (field === 'notes') {
-          updatedReservation.notes = value as string;
-        } else if (field === 'reservationNumber' || field === 'reservationDate' || field === 'id') {
-          updatedReservation[field] = value as string;
+        
+        const vehicle = vehicles.find(v => v._id === vehicleId);
+        
+        if (vehicle) {
+            newTotalAmount = diffDays * vehicle.rentalPrice;
         } else {
-          // For any other fields, use a safer approach
-          console.warn(`Unhandled field type: ${field}`);
+            // If vehicle is not found, set total amount to 0 or handle as appropriate
+            newTotalAmount = 0; 
         }
-      }
-      
-      setEditedReservation(updatedReservation);
-    }
-  };
 
-  // Filter reservations
-  const filteredReservations = reservations.filter(reservation => {
-    const matchesSearch = 
-      reservation.client.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.reservationNumber.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      reservation.vehicle.model.toLowerCase().includes(searchTerm.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || reservation.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+        setEditedReservation(prev => {
+            if (!prev || (prev.duration === diffDays && prev.totalAmount === newTotalAmount)) {
+                return prev;
+            }
+            return {
+                ...prev,
+                duration: diffDays,
+                totalAmount: newTotalAmount
+            };
+        });
+      }
+    }
+  }, [editedReservation?.startDate, editedReservation?.endDate, editedReservation?.vehicle, vehicles, editMode]);
+
+  if (loading) return <p>Loading...</p>;
+  if (error) return <p>{error}</p>;
 
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center space-y-4 sm:space-y-0">
         <h1 className="text-2xl font-bold text-gray-900">Gestion des Réservations</h1>
         <button
-          onClick={() => setShowNewReservationModal(true)}
+          onClick={() => {
+            setSelectedReservation(null);
+            setShowNewReservationModal(true);
+          }}
           className="inline-flex items-center px-4 py-2 border border-transparent shadow-sm text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
         >
           <Plus size={16} className="mr-2" />
@@ -287,7 +286,7 @@ const Reservations: React.FC = () => {
 
       {/* Filters */}
       <div className="bg-white p-4 rounded-lg shadow">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="relative">
             <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
               <Search size={18} className="text-gray-400" />
@@ -300,86 +299,96 @@ const Reservations: React.FC = () => {
               onChange={(e) => setSearchTerm(e.target.value)}
             />
           </div>
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Filter size={18} className="text-gray-400" />
-            </div>
+          <div>
+            <label htmlFor="status-filter" className="sr-only">Filtrer par statut</label>
             <select
-              className="pl-10 px-4 py-2 block w-full shadow-sm focus:ring-blue-500 focus:border-blue-500 border-gray-300 rounded-md"
+              id="status-filter"
+              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
               value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as 'all' | ReservationStatus)}
+              onChange={(e) => setStatusFilter(e.target.value as ReservationStatus | '')}
             >
-              <option value="all">Tous les statuts</option>
+              <option value="">Tous les statuts</option>
               <option value="en_cours">En cours</option>
               <option value="validee">Validée</option>
               <option value="annulee">Annulée</option>
-              <option value="ratee">Ratée</option>
+              <option value="fin_de_periode">Fin de période</option>
             </select>
+          </div>
+          <div>
+            <label htmlFor="date-filter" className="sr-only">Filtrer par date de réservation</label>
+            <DatePicker
+              id="date-filter"
+              selected={selectedDateFilter}
+              onChange={(date: Date | null) => setSelectedDateFilter(date)}
+              dateFormat="dd/MM/yyyy"
+              locale="fr"
+              placeholderText="Sélectionner une date"
+              className="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm rounded-md"
+            />
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Reservations List */}
         <div className="lg:col-span-2">
-          <div className="bg-white shadow overflow-hidden rounded-lg">
+          <div className="bg-white shadow overflow-x-auto rounded-lg">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Réservation
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Client & Véhicule
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Dates
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Montant
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Statut
-                  </th>
-                  <th scope="col" className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Actions
-                  </th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Réservation</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Client & Véhicule</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Dates</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Montant</th>
+                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Statut</th>
+                  <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase">Actions</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredReservations.map((reservation) => (
-                  <tr 
-                    key={reservation.id}
-                    onClick={() => setSelectedReservation(reservation)}
-                    className={`hover:bg-gray-50 cursor-pointer ${
-                      selectedReservation?.id === reservation.id ? 'bg-blue-50' : ''
-                    }`}
+                  <tr
+                    key={reservation._id}
+                    className={`hover:bg-gray-50 cursor-pointer ${selectedReservation?._id === reservation._id ? 'bg-blue-50' : ''}`}
+                    onClick={() => handleViewDetails(reservation)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10">
-                          <FileText size={24} className="mx-auto mt-2 text-gray-500" />
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
-                            {reservation.reservationNumber}
+                      <div className="md:block overflow-x-auto md:overflow-visible">
+                        <div className="flex items-center min-w-[220px] md:min-w-0">
+                          <div className="flex-shrink-0 h-10 w-10">
+                            {typeof reservation.vehicle === 'object' && reservation.vehicle?.imageUrl ? (
+                              <img
+                                src={reservation.vehicle.imageUrl.startsWith('data:') ? reservation.vehicle.imageUrl : `${API_URL}/${reservation.vehicle.imageUrl.replace(/\\/g, '/')}`}
+                                alt={`${reservation.vehicle.brand || 'N/A'} ${reservation.vehicle.model || 'N/A'}`}
+                                className="w-10 h-10 object-cover rounded-full"
+                              />
+                            ) : (
+                              <Car size={24} className="mx-auto mt-2 text-gray-500" />
+                            )}
                           </div>
-                          <div className="text-xs text-gray-500">
-                            {reservation.duration} jours
+                          <div className="ml-4">
+                            <div className="text-sm font-medium text-gray-900">
+                              {reservation.reservationNumber}
+                            </div>
+                            <div className="text-xs text-gray-500">
+                              {typeof reservation.customer === 'object' && reservation.customer ? `${reservation.customer.prenomFr || ''} ${reservation.customer.nomFr || ''}`.trim() || 'N/A' : 'N/A'}
+                            </div>
                           </div>
                         </div>
                       </div>
                     </td>
                     <td className="px-6 py-4">
-                      <div className="text-sm text-gray-900">{reservation.client.name}</div>
-                      <div className="text-sm text-gray-500">{reservation.vehicle.model}</div>
+                      <div className="text-sm font-medium">
+                        {typeof reservation.vehicle === 'object' && reservation.vehicle ? reservation.vehicle.model || 'N/A' : 'N/A'}
+                      </div>
+                      <div className="text-xs text-gray-500">
+                        {typeof reservation.vehicle === 'object' && reservation.vehicle ? reservation.vehicle.licensePlate || 'N/A' : 'N/A'}
+                      </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">
-                        {new Date(reservation.startDate).toLocaleDateString('fr-FR')}
+                        {formatDateToFrench(reservation.startDate)}
                       </div>
                       <div className="text-sm text-gray-500">
-                        {new Date(reservation.endDate).toLocaleDateString('fr-FR')}
+                        {formatDateToFrench(reservation.endDate)}
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -387,32 +396,46 @@ const Reservations: React.FC = () => {
                         {reservation.totalAmount.toLocaleString('fr-FR')} DH
                       </div>
                       <div className={`text-xs ${
-                        reservation.advance < reservation.totalAmount ? 'text-amber-600' : 'text-green-600'
+                        (reservation.totalAmount - reservation.advance) > 0 ? 'text-amber-600' : 'text-green-600'
                       }`}>
-                        {reservation.advance < reservation.totalAmount 
-                          ? `Avance: ${reservation.advance.toLocaleString('fr-FR')} DH`
+                        {(reservation.totalAmount - reservation.advance) > 0
+                          ? `Reste: ${(reservation.totalAmount - reservation.advance).toLocaleString('fr-FR')} DH`
                           : 'Payé'
                         }
                       </div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <StatusBadge status={reservation.status} />
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        reservation.status === 'en_cours'
+                          ? 'bg-blue-100 text-blue-800'
+                          : reservation.status === 'validee'
+                          ? 'bg-green-100 text-green-800'
+                          : reservation.status === 'annulee'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {reservation.status === 'en_cours' ? 'En cours' :
+                         reservation.status === 'validee' ? 'Validée' :
+                         reservation.status === 'annulee' ? 'Annulée' :
+                         'Fin de période'}
+                      </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <EditButton
                         onClick={(e) => {
                           e.stopPropagation();
                           setSelectedReservation(reservation);
-                          setEditedReservation({ ...reservation });
                           setEditMode(true);
+                          setEditedReservation({
+                            ...reservation,
+                            customer: typeof reservation.customer === 'object' ? reservation.customer._id : reservation.customer,
+                            vehicle: typeof reservation.vehicle === 'object' ? reservation.vehicle._id : reservation.vehicle,
+                          });
                         }}
                         size="md"
                         className="mr-3"
                       />
-                      <button 
-                        onClick={(e) => handleDeleteReservation(reservation.id, e)}
-                        className="text-red-600 hover:text-red-900"
-                      >
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteConfirmation(reservation._id); }}>
                         <Trash2 size={18} />
                       </button>
                     </td>
@@ -423,519 +446,640 @@ const Reservations: React.FC = () => {
           </div>
         </div>
 
-        {/* Reservation Details or New Reservation Form */}
         <div className="lg:col-span-1">
           {selectedReservation ? (
             <div className="bg-white shadow rounded-lg">
-              <div className="border-b border-gray-200 p-4">
-                <div className="flex justify-between items-center">
-                  <h2 className="text-lg font-medium">Détails de la réservation</h2>
-                  <div className="flex items-center space-x-2">
-                    <StatusBadge status={selectedReservation.status} />
-                    {!editMode && (
-                      <EditButton
-                        onClick={handleEditClick}
-                        size="sm"
-                      />
-                    )}
-                  </div>
+              <div className="border-b border-gray-200 p-4 flex justify-between items-center">
+                <h2 className="text-lg font-medium">Détails de la réservation</h2>
+                <div className="flex items-center space-x-2">
+                  {editMode ? (
+                    <>
+                      <button
+                        onClick={() => {
+                          if (confirm('Êtes-vous sûr de vouloir annuler les modifications ?')) {
+                            setEditMode(false);
+                            setEditedReservation(null);
+                            setEditValidationErrors({});
+                          }
+                        }}
+                        className="px-3 py-1 border rounded-lg text-sm"
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (editedReservation) {
+                            handleUpdateReservation(editedReservation);
+                          }
+                        }}
+                        className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm"
+                      >
+                        Enregistrer
+                      </button>
+                    </>
+                  ) : (
+                    <EditButton
+                      onClick={() => {
+                        setEditedReservation({ ...selectedReservation });
+                        setEditMode(true);
+                        setEditValidationErrors({});
+                      }}
+                      withText={true}
+                      className="mr-2"
+                    />
+                  )}
+                  <button onClick={() => setSelectedReservation(null)} className="p-2">
+                    <X size={20} />
+                  </button>
                 </div>
               </div>
 
-              <div className="p-4 space-y-4">
-                {/* Reservation Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">N° de Réservation</h3>
-                  <div className="mt-1 flex items-center">
-                    <FileText size={16} className="text-gray-400 mr-2" />
-                    {editMode ? (
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg p-2"
-                        value={editedReservation?.reservationNumber}
-                        onChange={(e) => handleInputChange('reservationNumber', e.target.value)}
+              <div className="p-4 space-y-6 overflow-y-auto max-h-[calc(100vh-150px)]">
+                {selectedReservation.vehicle && typeof selectedReservation.vehicle === 'object' ? (
+                  <div className="mb-6 relative">
+                    {selectedReservation.vehicle.imageUrl ? (
+                      <img
+                        src={selectedReservation.vehicle.imageUrl.startsWith('data:') ? selectedReservation.vehicle.imageUrl : `${API_URL}/${selectedReservation.vehicle.imageUrl.replace(/\\/g, '/').replace(/^\//, '')}`}
+                        alt={`${selectedReservation.vehicle.brand || 'N/A'} ${selectedReservation.vehicle.model || 'N/A'}`}
+                        className="w-full h-48 object-cover rounded-lg"
                       />
                     ) : (
-                      <p className="text-sm text-gray-900">{selectedReservation.reservationNumber}</p>
+                      <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+                        <Car size={48} className="text-gray-400" />
+                      </div>
                     )}
                   </div>
-                </div>
-
-                {/* Client Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Client</h3>
-                  <div className="mt-1 space-y-1">
-                    {editMode ? (
-                      <>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.client.name}
-                          onChange={(e) => handleInputChange('client.name', e.target.value)}
-                          placeholder="Nom du client"
-                        />
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.client.permis}
-                          onChange={(e) => handleInputChange('client.permis', e.target.value)}
-                          placeholder="Numéro de permis"
-                        />
-                        <input
-                          type="date"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.client.validite}
-                          onChange={(e) => handleInputChange('client.validite', e.target.value)}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm text-gray-900">{selectedReservation.client.name}</p>
-                        <p className="text-sm text-gray-500">Permis: {selectedReservation.client.permis}</p>
-                        <p className="text-sm text-gray-500">
-                          Validité: {new Date(selectedReservation.client.validite).toLocaleDateString('fr-FR')}
-                        </p>
-                      </>
-                    )}
+                ) : (
+                  <div className="mb-6 relative">
+                    <div className="w-full h-48 bg-gray-100 rounded-lg flex items-center justify-center">
+                      <Car size={48} className="text-gray-400" />
+                    </div>
                   </div>
-                </div>
-
-                {/* Vehicle Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Véhicule</h3>
-                  <div className="mt-1 space-y-1">
-                    {editMode ? (
-                      <>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.vehicle.model}
-                          onChange={(e) => handleInputChange('vehicle.model', e.target.value)}
-                          placeholder="Modèle du véhicule"
-                        />
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.vehicle.matricule}
-                          onChange={(e) => handleInputChange('vehicle.matricule', e.target.value)}
-                          placeholder="Matricule"
-                        />
-                        <input
-                          type="number"
-                          className="w-full border rounded-lg p-2"
-                          value={editedReservation?.vehicle.pricePerDay}
-                          onChange={(e) => handleInputChange('vehicle.pricePerDay', e.target.value)}
-                          placeholder="Prix par jour"
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm text-gray-900">{selectedReservation.vehicle.model}</p>
-                        <p className="text-sm text-gray-500">
-                          Matricule: {selectedReservation.vehicle.matricule}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Prix/jour: {selectedReservation.vehicle.pricePerDay} DH
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Dates and Duration */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Période</h3>
-                  <div className="mt-1 space-y-1">
-                    {editMode ? (
-                      <>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Du:</label>
-                          <input
-                            type="date"
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.startDate}
-                            onChange={(e) => handleInputChange('startDate', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Au:</label>
-                          <input
-                            type="date"
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.endDate}
-                            onChange={(e) => handleInputChange('endDate', e.target.value)}
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Durée (jours):</label>
-                          <input
-                            type="number"
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.duration}
-                            onChange={(e) => handleInputChange('duration', parseInt(e.target.value))}
-                            min="1"
-                          />
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex items-center">
-                          <Calendar size={16} className="text-gray-400 mr-2" />
-                          <p className="text-sm text-gray-900">
-                            Du {new Date(selectedReservation.startDate).toLocaleDateString('fr-FR')}
-                          </p>
-                        </div>
-                        <p className="text-sm text-gray-900 ml-6">
-                          Au {new Date(selectedReservation.endDate).toLocaleDateString('fr-FR')}
-                        </p>
-                        <p className="text-sm text-gray-500 ml-6">
-                          {selectedReservation.duration} jours
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Payment Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Paiement</h3>
-                  <div className="mt-1 space-y-2">
-                    {editMode ? (
-                      <>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Total:</label>
-                          <input
-                            type="number"
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.totalAmount}
-                            onChange={(e) => handleInputChange('totalAmount', e.target.value)}
-                            min="0"
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Avance:</label>
-                          <input
-                            type="number"
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.advance}
-                            onChange={(e) => handleInputChange('advance', e.target.value)}
-                            min="0"
-                          />
-                        </div>
-                        <div className="flex items-center space-x-2">
-                          <label className="text-sm text-gray-500">Statut:</label>
-                          <select
-                            className="w-full border rounded-lg p-2"
-                            value={editedReservation?.status}
-                            onChange={(e) => handleInputChange('status', e.target.value as ReservationStatus)}
-                          >
-                            <option value="en_cours">En cours</option>
-                            <option value="validee">Validée</option>
-                            <option value="annulee">Annulée</option>
-                            <option value="ratee">Ratée</option>
-                          </select>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-500">Total:</span>
-                          <span className="text-sm text-gray-900">
-                            {selectedReservation.totalAmount.toLocaleString('fr-FR')} DH
-                          </span>
-                        </div>
-                        <div className="flex justify-between">
-                          <span className="text-sm text-gray-500">Avance:</span>
-                          <span className="text-sm text-green-600">
-                            {selectedReservation.advance.toLocaleString('fr-FR')} DH
-                          </span>
-                        </div>
-                        <div className="flex justify-between font-medium">
-                          <span className="text-sm text-gray-500">Reste à payer:</span>
-                          <span className="text-sm text-amber-600">
-                            {(selectedReservation.totalAmount - selectedReservation.advance).toLocaleString('fr-FR')} DH
-                          </span>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Notes</h3>
-                  {editMode ? (
-                    <textarea
+                )}
+                <section>
+                  <h3 className="text-lg font-medium mb-4">Informations générales</h3>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-sm text-gray-500">N° de Réservation</p>
+                  {editMode && editedReservation ? (
+                    <input
+                      type="text"
+                      name="reservationNumber"
+                      value={editedReservation.reservationNumber || ''}
+                      onChange={(e) => setEditedReservation(prev => prev ? { ...prev, reservationNumber: e.target.value } : null)}
                       className="w-full border rounded-lg p-2 mt-1"
-                      value={editedReservation?.notes || ''}
-                      onChange={(e) => handleInputChange('notes', e.target.value)}
-                      rows={3}
-                      placeholder="Ajouter des notes..."
                     />
                   ) : (
-                    <p className="mt-1 text-sm text-gray-900">{selectedReservation.notes || 'Aucune note'}</p>
+                    <p className="font-medium">{selectedReservation.reservationNumber || '-'}</p>
                   )}
                 </div>
-
-                <div className="pt-4 border-t">
-                  <div className="flex space-x-3">
-                    {editMode ? (
-                      <>
-                        <button 
-                          onClick={handleSaveEdit}
-                          className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                          Enregistrer
-                        </button>
-                        <button 
-                          onClick={handleCancelEdit}
-                          className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                        >
-                          Annuler
-                        </button>
-                      </>
-                    ) : (
-                      <button 
-                        onClick={() => window.print()}
-                        className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        Imprimer
-                      </button>
-                    )}
-                  </div>
+                <div>
+                  <p className="text-sm text-gray-500">Client</p>
+                  {editMode && editedReservation ? (
+                    <select
+                      name="customer"
+                      onChange={(e) => {
+                        const selectedCustomerId = e.target.value;
+                        setEditedReservation(prev => prev ? { ...prev, customer: selectedCustomerId } : null);
+                      }}
+                      value={typeof editedReservation?.customer === 'object' && editedReservation.customer ? editedReservation.customer._id : (editedReservation?.customer || '')}
+                      className="w-full border rounded-lg p-2 mt-1"
+                    >
+                      <option value="">Sélectionner un client</option>
+                      {customers.map(c => <option key={c._id} value={c._id}>{c.prenomFr} {c.nomFr}</option>)}
+                    </select>
+                  ) : (
+                    <p className="font-medium">
+                      {typeof selectedReservation.customer === 'object' && selectedReservation.customer ? `${selectedReservation.customer.prenomFr || ''} ${selectedReservation.customer.nomFr || ''}`.trim() || 'N/A' : 'N/A'}
+                    </p>
+                  )}
                 </div>
+                <div>
+                  <p className="text-sm text-gray-500">Véhicule</p>
+                  {editMode && editedReservation ? (
+                    <select
+                      name="vehicle"
+                      onChange={(e) => {
+                        const selectedVehicleId = e.target.value;
+                        setEditedReservation(prev => prev ? { ...prev, vehicle: selectedVehicleId } : null);
+                      }}
+                      value={typeof editedReservation?.vehicle === 'object' && editedReservation.vehicle ? editedReservation.vehicle._id : (editedReservation?.vehicle || '')}
+                      className="w-full border rounded-lg p-2 mt-1"
+                    >
+                      <option value="">Sélectionner un véhicule</option>
+                      {vehicles.map(v => <option key={v._id} value={v._id}>{v.licensePlate} - {v.model}</option>)}
+                    </select>
+                  ) : (
+                    <p className="font-medium">
+                      {typeof selectedReservation.vehicle === 'object' && selectedReservation.vehicle ? `${selectedReservation.vehicle.brand || 'N/A'} ${selectedReservation.vehicle.model || 'N/A'}` : 'N/A'}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Date de Réservation</p>
+                  {editMode && editedReservation ? (
+                    <DatePicker
+                      selected={editedReservation.reservationDate ? new Date(editedReservation.reservationDate) : null}
+                      onChange={(date) => setEditedReservation(prev => prev ? { ...prev, reservationDate: date ? date.toISOString() : '' } : null)}
+                      dateFormat="dd/MM/yyyy"
+                      locale="fr"
+                      className="w-full border rounded-lg p-2 mt-1"
+                    />
+                  ) : (
+                    <p className="font-medium">{formatDateToFrench(selectedReservation.reservationDate) || '-'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Date de Début</p>
+                  {editMode && editedReservation ? (
+                    <DatePicker
+                      selected={editedReservation.startDate ? new Date(editedReservation.startDate) : null}
+                      onChange={(date) => setEditedReservation(prev => prev ? { ...prev, startDate: date ? date.toISOString() : '' } : null)}
+                      dateFormat="dd/MM/yyyy"
+                      locale="fr"
+                      className="w-full border rounded-lg p-2 mt-1"
+                    />
+                  ) : (
+                    <p className="font-medium">{formatDateToFrench(selectedReservation.startDate) || '-'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Date de Fin</p>
+                  {editMode && editedReservation ? (
+                    <DatePicker
+                      selected={editedReservation.endDate ? new Date(editedReservation.endDate) : null}
+                      onChange={(date) => setEditedReservation(prev => prev ? { ...prev, endDate: date ? date.toISOString() : '' } : null)}
+                      dateFormat="dd/MM/yyyy"
+                      locale="fr"
+                      className="w-full border rounded-lg p-2 mt-1"
+                    />
+                  ) : (
+                    <p className="font-medium">{formatDateToFrench(selectedReservation.endDate) || '-'}</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Durée</p>
+                  <p className="font-medium">{selectedReservation.duration || 'N/A'} jours</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Montant Total</p>
+                  {editMode && editedReservation ? (
+                    <input
+                      type="number"
+                      name="totalAmount"
+                      value={editedReservation.totalAmount || 0}
+                      onChange={(e) => setEditedReservation(prev => prev ? { ...prev, totalAmount: Number(e.target.value) } : null)}
+                      className="w-full border rounded-lg p-2 mt-1"
+                    />
+                  ) : (
+                    <p className="font-medium">{selectedReservation.totalAmount?.toLocaleString('fr-FR') || 'N/A'} DH</p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Avance</p>
+                  {editMode && editedReservation ? (
+                    <input
+                      type="number"
+                      name="advance"
+                      value={editedReservation.advance || 0}
+                      onChange={(e) => {
+                        setEditedReservation(prev => prev ? { ...prev, advance: Number(e.target.value) } : null);
+                        if (Number(e.target.value) < 0) {
+                          setEditValidationErrors(prev => ({ ...prev, advance: 'L\'avance ne peut pas être inférieure à 0.' }));
+                        } else {
+                          setEditValidationErrors(prev => {
+                            const newErrors = { ...prev };
+                            delete newErrors.advance;
+                            return newErrors;
+                          });
+                        }
+                      }}
+                      className={`w-full border rounded-lg p-2 mt-1 ${editValidationErrors.advance ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
+                    />
+                  ) : (
+                    <p className="font-medium">{selectedReservation.advance?.toLocaleString('fr-FR') || 'N/A'} DH</p>
+                  )}
+                  {editValidationErrors.advance && <p className="text-red-500 text-xs mt-1">{editValidationErrors.advance}</p>}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Reste à payer</p>
+                  <p className="font-medium">{(selectedReservation.totalAmount - selectedReservation.advance)?.toLocaleString('fr-FR') || 'N/A'} DH</p>
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Statut</p>
+                  {editMode && editedReservation ? (
+                    <select
+                      name="status"
+                      value={editedReservation.status || ''}
+                      onChange={(e) => setEditedReservation(prev => prev ? { ...prev, status: e.target.value as ReservationStatus } : null)}
+                      className="w-full border rounded-lg p-2 mt-1"
+                    >
+                      <option value="en_cours">En cours</option>
+                      <option value="validee">Validée</option>
+                      <option value="annulee">Annulée</option>
+                      <option value="fin_de_periode">Fin de période</option>
+                    </select>
+                  ) : (
+                    <p className="font-medium">
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
+                        selectedReservation.status === 'en_cours'
+                          ? 'bg-blue-100 text-blue-800'
+                          : selectedReservation.status === 'validee'
+                          ? 'bg-green-100 text-green-800'
+                          : selectedReservation.status === 'annulee'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-gray-100 text-gray-800'
+                      }`}>
+                        {selectedReservation.status === 'en_cours' ? 'En cours' :
+                         selectedReservation.status === 'validee' ? 'Validée' :
+                         selectedReservation.status === 'annulee' ? 'Annulée' :
+                         'Fin de période'}
+                      </span>
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <p className="text-sm text-gray-500">Notes</p>
+                  {editMode && editedReservation ? (
+                    <textarea
+                      name="notes"
+                      value={editedReservation.notes || ''}
+                      onChange={(e) => {
+                        setEditedReservation(prev => prev ? { ...prev, notes: e.target.value } : null);
+                        if (isOnlySpaces(e.target.value)) {
+                          setEditValidationErrors(prev => ({ ...prev, notes: 'Les notes ne peuvent pas contenir uniquement des espaces.' }));
+                        } else {
+                          setEditValidationErrors(prev => {
+                            const newErrors = { ...prev };
+                            delete newErrors.notes;
+                            return newErrors;
+                          });
+                        }
+                      }}
+                      rows={3}
+                      className={`w-full border rounded-lg p-2 mt-1 ${editValidationErrors.notes ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
+                    ></textarea>
+                  ) : (
+                    <p className="font-medium">{selectedReservation.notes || 'Aucune note'}</p>
+                  )}
+                  {editValidationErrors.notes && <p className="text-red-500 text-xs mt-1">{editValidationErrors.notes}</p>}
+                </div>
+              </div>
+                </section>
               </div>
             </div>
           ) : (
-            <div className="bg-white shadow rounded-lg p-6">
-              <div className="flex flex-col items-center justify-center text-center h-full py-10">
-                <Calendar size={48} className="text-gray-300 mb-4" />
-                <h3 className="text-lg font-medium text-gray-800 mb-2">
-                  Aucune réservation sélectionnée
-                </h3>
-                <p className="text-gray-500 mb-4">
-                  Sélectionnez une réservation pour voir ses détails
-                </p>
-                <button
-                  onClick={() => setShowNewReservationModal(true)}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
-                >
-                  <Plus size={16} className="mr-2" />
-                  Nouvelle réservation
-                </button>
-              </div>
+            <div className="bg-white shadow rounded-lg p-6 text-center">
+              <Calendar size={64} className="mx-auto mb-4 text-gray-400" />
+              <p>Aucune réservation sélectionnée</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* New Reservation Modal */}
       {showNewReservationModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">Nouvelle Réservation</h2>
-            <form className="space-y-6">
-              {/* Client Section */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Information Client</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Client
-                    </label>
-                    <select 
-                      className="w-full border rounded-lg p-2"
-                      onChange={(e) => {
-                        const client = sampleClients.find(c => c.id === e.target.value);
-                        setSelectedClient(client || null);
-                      }}
-                    >
-                      <option value="">Sélectionner un client</option>
-                      {sampleClients.map(client => (
-                        <option key={client.id} value={client.id}>
-                          {client.name}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      N° Permis
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedClient?.permis || ''}
-                      className="w-full border rounded-lg p-2 bg-gray-50"
-                      disabled
-                    />
-                  </div>
+        <ReservationForm
+          onSubmit={handleAddReservation}
+          onClose={() => setShowNewReservationModal(false)}
+          initialData={null}
+          customers={customers}
+          vehicles={vehicles}
+        />
+      )}
 
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date de validité
-                    </label>
-                    <input
-                      type="text"
-                      value={selectedClient?.validite ? new Date(selectedClient.validite).toLocaleDateString('fr-FR') : ''}
-                      className="w-full border rounded-lg p-2 bg-gray-50"
-                      disabled
-                    />
-                  </div>
-                </div>
-              </section>
-
-              {/* Reservation Information */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Informations Réservation</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      N° Réservation
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full border rounded-lg p-2"
-                      placeholder="RES-2025-XXX"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date de réservation
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border rounded-lg p-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      État
-                    </label>
-                    <select className="w-full border rounded-lg p-2">
-                      <option value="en_cours">En cours</option>
-                      <option value="validee">Validée</option>
-                      <option value="annulee">Annulée</option>
-                      <option value="ratee">Ratée</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date de début
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border rounded-lg p-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date de fin
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border rounded-lg p-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Durée (jours)
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full border rounded-lg p-2"
-                      min="1"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Véhicule
-                    </label>
-                    <select 
-                      className="w-full border rounded-lg p-2"
-                      onChange={(e) => {
-                        const vehicle = sampleVehicles.find(v => v.id === e.target.value);
-                        setSelectedVehicle(vehicle || null);
-                      }}
-                    >
-                      <option value="">Sélectionner un véhicule</option>
-                      {sampleVehicles.filter(v => v.isAvailable).map(vehicle => (
-                        <option key={vehicle.id} value={vehicle.id}>
-                          {vehicle.model} - {vehicle.matricule}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Prix par jour
-                    </label>
-                    <input
-                      type="number"
-                      value={selectedVehicle?.pricePerDay || ''}
-                      className="w-full border rounded-lg p-2 bg-gray-50"
-                      disabled
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Montant total
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full border rounded-lg p-2"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Avance
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full border rounded-lg p-2"
-                    />
-                  </div>
-
-                  <div className="md:col-span-3">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notes
-                    </label>
-                    <textarea
-                      className="w-full border rounded-lg p-2"
-                      rows={3}
-                      placeholder="Ajouter des notes ou commentaires..."
-                    ></textarea>
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex justify-end space-x-4">
-                <button
-                  type="button"
-                  onClick={() => setShowNewReservationModal(false)}
-                  className="px-4 py-2 border rounded-lg"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-                >
-                  Créer Réservation
-                </button>
-              </div>
-            </form>
+      {showDeleteConfirmation && selectedReservation && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md">
+            <h2 className="text-xl font-bold mb-4">Confirmer la suppression</h2>
+            <p>Êtes-vous sûr de vouloir supprimer la réservation "{selectedReservation.reservationNumber}" ?</p>
+            <div className="flex justify-end space-x-4 mt-6">
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirmation(false)}
+                className="px-4 py-2 border rounded-lg"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteReservation}
+                className="px-4 py-2 bg-red-600 text-white rounded-lg"
+              >
+                Supprimer
+              </button>
+            </div>
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+const ReservationForm = ({
+  onSubmit,
+  onClose,
+  initialData,
+  customers,
+  vehicles,
+}: {
+  onSubmit: (data: Partial<Reservation>) => void;
+  onClose: () => void;
+  initialData: Reservation | null;
+  customers: Customer[];
+  vehicles: Vehicle[];
+}) => {
+  const today = new Date().toISOString().split('T')[0];
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowString = tomorrow.toISOString().split('T')[0];
+
+  const [formData, setFormData] = useState<Partial<Reservation>>(() => {
+    if (initialData) {
+      return {
+        ...initialData,
+        customer: typeof initialData.customer === 'object' ? initialData.customer._id : initialData.customer,
+        vehicle: typeof initialData.vehicle === 'object' ? initialData.vehicle._id : initialData.vehicle,
+      };
+    }
+    return {
+      reservationNumber: '',
+      reservationDate: today,
+      startDate: today,
+      endDate: tomorrowString, // Set default endDate to tomorrow
+      duration: 0,
+      status: 'en_cours',
+      customer: '',
+      vehicle: '',
+      totalAmount: 0,
+      advance: 0,
+      notes: '',
+    };
+  });
+
+  const [validationErrors, setValidationErrors] = useState<{[key: string]: string}>({});
+
+  useEffect(() => {
+    if (formData.startDate && formData.endDate) {
+      const start = new Date(formData.startDate);
+      const end = new Date(formData.endDate);
+      if (!isNaN(start.getTime()) && !isNaN(end.getTime()) && end >= start) {
+        const diffTime = Math.abs(end.getTime() - start.getTime());
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+        
+        let newTotalAmount = formData.totalAmount || 0;
+        if (formData.vehicle) {
+            const selectedVehicle = vehicles.find(v => v._id === formData.vehicle);
+            if (selectedVehicle) {
+                newTotalAmount = diffDays * selectedVehicle.rentalPrice;
+            }
+        }
+        
+        setFormData(prev => ({ ...prev, duration: diffDays, totalAmount: newTotalAmount }));
+      }
+    }
+  }, [formData.startDate, formData.endDate, formData.vehicle, vehicles]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+
+    if (name === 'notes') {
+      if (value && isOnlySpaces(value)) {
+        setValidationErrors(prev => ({ ...prev, [name]: 'Les notes ne peuvent pas contenir uniquement des espaces.' }));
+      } else {
+        setValidationErrors(prev => {
+          const newErrors = { ...prev };
+          delete newErrors[name];
+          return newErrors;
+        });
+      }
+    }
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleDateChange = (date: Date | null, name: string) => {
+    setFormData(prev => ({ ...prev, [name]: date ? date.toISOString().split('T')[0] : '' }));
+  };
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+
+    const errors: {[key: string]: string} = {};
+    if (!formData.customer || !formData.vehicle || !formData.startDate || !formData.endDate || !formData.reservationDate) {
+      toast.error('Veuillez remplir tous les champs obligatoires.');
+      return;
+    }
+    if (formData.notes && isOnlySpaces(formData.notes)) {
+      errors.notes = 'Les notes ne peuvent pas contenir uniquement des espaces.';
+    }
+    if (formData.advance !== undefined && formData.advance < 0) {
+      errors.advance = 'L\'avance ne peut pas être inférieure à 0.';
+    }
+
+    setValidationErrors(errors);
+
+    if (Object.keys(errors).length > 0) {
+      toast.error('Veuillez corriger les erreurs de validation.');
+      return;
+    }
+
+    const dataToSend = {
+      ...formData,
+      customer: formData.customer,
+      vehicle: formData.vehicle,
+      duration: Number(formData.duration),
+      totalAmount: Number(formData.totalAmount),
+      advance: Number(formData.advance),
+    };
+    onSubmit(dataToSend);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto relative">
+        <div className="flex justify-between items-center mb-6">
+          <h2 className="text-xl font-bold">
+            {initialData ? 'Modifier la réservation' : 'Ajouter une réservation'}
+          </h2>
+          <button onClick={onClose}>
+            <X size={24} />
+          </button>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <section>
+            <h3 className="text-lg font-medium mb-4">Informations sur la Réservation</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="customer" className="block text-sm font-medium text-gray-700 mb-1">Client</label>
+                <select
+                  id="customer"
+                  name="customer"
+                  value={formData.customer as string || ''}
+                  onChange={handleChange}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  required
+                >
+                  <option value="">Sélectionner un client</option>
+                  {customers.map(c => (
+                    <option key={c._id} value={c._id}>{c.prenomFr} {c.nomFr}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="vehicle" className="block text-sm font-medium text-gray-700 mb-1">Véhicule</label>
+                <select
+                  id="vehicle"
+                  name="vehicle"
+                  value={formData.vehicle as string || ''}
+                  onChange={handleChange}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+                  required
+                >
+                  <option value="">Sélectionner un véhicule</option>
+                  {vehicles.map(v => (
+                    <option key={v._id} value={v._id}>{v.licensePlate} - {v.model}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="reservationDate" className="block text-sm font-medium text-gray-700 mb-1">Date de Réservation</label>
+                <DatePicker
+                  selected={formData.reservationDate ? new Date(formData.reservationDate) : null}
+                  onChange={(date) => handleDateChange(date, 'reservationDate')}
+                  dateFormat="dd/MM/yyyy"
+                  locale="fr"
+                  placeholderText="Date de réservation"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+              <div>
+                <label htmlFor="startDate" className="block text-sm font-medium text-gray-700 mb-1">Date de Début</label>
+                <DatePicker
+                  selected={formData.startDate ? new Date(formData.startDate) : null}
+                  onChange={(date) => handleDateChange(date, 'startDate')}
+                  dateFormat="dd/MM/yyyy"
+                  locale="fr"
+                  placeholderText="Date de début"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+              <div>
+                <label htmlFor="endDate" className="block text-sm font-medium text-gray-700 mb-1">Date de Fin</label>
+                <DatePicker
+                  selected={formData.endDate ? new Date(formData.endDate) : null}
+                  onChange={(date) => handleDateChange(date, 'endDate')}
+                  dateFormat="dd/MM/yyyy"
+                  locale="fr"
+                  placeholderText="Date de fin"
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+              <div>
+                <label htmlFor="duration" className="block text-sm font-medium text-gray-700 mb-1">Durée</label>
+                <input
+                  type="number"
+                  id="duration"
+                  name="duration"
+                  placeholder="Durée"
+                  value={formData.duration || ''}
+                  readOnly
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="rentalPrice" className="block text-sm font-medium text-gray-700 mb-1">Prix de journée</label>
+                <input
+                  type="number"
+                  id="rentalPrice"
+                  name="rentalPrice"
+                  placeholder="Prix de journée"
+                  value={vehicles.find(v => v._id === formData.vehicle)?.rentalPrice || ''}
+                  readOnly
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3 bg-gray-100"
+                />
+              </div>
+              <div>
+                <label htmlFor="status" className="block text-sm font-medium text-gray-700 mb-1">Statut</label>
+                <select
+                  id="status"
+                  name="status"
+                  value={formData.status || ''}
+                  onChange={handleChange}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                >
+                <option value="en_cours">En cours</option>
+                <option value="validee">Validée</option>
+                <option value="annulee">Annulée</option>
+                <option value="fin_de_periode">Fin de période</option>
+              </select>
+              </div>
+              <div>
+                <label htmlFor="totalAmount" className="block text-sm font-medium text-gray-700 mb-1">Montant Total</label>
+                <input
+                  type="number"
+                  id="totalAmount"
+                  name="totalAmount"
+                  placeholder="Montant total"
+                  value={formData.totalAmount || ''}
+                  onChange={(e) => setFormData(prev => ({ ...prev, totalAmount: parseFloat(e.target.value) }))}
+                  className="mt-1 block w-full border border-gray-300 rounded-md shadow-sm py-2 px-3"
+                />
+              </div>
+              <div>
+                <label htmlFor="advance" className="block text-sm font-medium text-gray-700 mb-1">Avance</label>
+                <input
+                  type="number"
+                  id="advance"
+                  name="advance"
+                  placeholder="Avance"
+                  value={formData.advance || ''}
+                  onChange={(e) => {
+                    setFormData(prev => ({ ...prev, advance: parseFloat(e.target.value) }));
+                    if (parseFloat(e.target.value) < 0) {
+                      setValidationErrors(prev => ({ ...prev, advance: 'L\'avance ne peut pas être inférieure à 0.' }));
+                    } else {
+                      setValidationErrors(prev => {
+                        const newErrors = { ...prev };
+                        delete newErrors.advance;
+                        return newErrors;
+                      });
+                    }
+                  }}
+                  className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 ${validationErrors.advance ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
+                />
+                {validationErrors.advance && <p className="text-red-500 text-xs mt-1">{validationErrors.advance}</p>}
+              </div>
+              <div>
+                <label htmlFor="notes" className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+                <textarea
+                  id="notes"
+                  name="notes"
+                  placeholder="Notes"
+                  value={formData.notes || ''}
+                  onChange={handleChange}
+                  className={`mt-1 block w-full border rounded-md shadow-sm py-2 px-3 ${validationErrors.notes ? 'border-red-500 focus:ring-red-500 focus:border-red-500' : 'border-gray-300 focus:ring-blue-500 focus:border-blue-500'}`}
+                />
+                {validationErrors.notes && <p className="text-red-500 text-xs mt-1">{validationErrors.notes}</p>}
+              </div>
+            </div>
+          </section>
+          <div className="flex justify-end space-x-4 pt-4 border-t">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-200 rounded-md hover:bg-gray-300"
+            >
+              Annuler
+            </button>
+            <button
+              type="submit"
+              className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700"
+            >
+              {initialData ? 'Modifier' : 'Ajouter'}
+            </button>
+          </div>
+        </form>
+      </div>
     </div>
   );
 };

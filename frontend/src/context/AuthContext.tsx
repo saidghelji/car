@@ -1,85 +1,65 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, ReactNode } from 'react';
+import axios from 'axios';
 
-type User = {
-  id: string;
-  name: string;
-  email: string;
-  role: 'admin' | 'staff' | 'client';
-};
-
-type AuthContextType = {
-  user: User | null;
-  loading: boolean;
-  login: (email: string, password: string) => Promise<void>;
+interface AuthContextType {
+  user: any | null;
+  login: (username: string, password: string) => Promise<void>;
   logout: () => void;
-};
+  changePassword: (oldPassword: string, newPassword: string) => Promise<void>;
+}
 
-// Create context
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Mock user for demo purposes
-const mockUser = {
-  id: '1',
-  name: 'Admin User',
-  email: 'admin@example.com',
-  role: 'admin' as const
-};
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const [user, setUser] = useState<any | null>(null);
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
-  
-  // Check for existing session on load
   useEffect(() => {
-    const initAuth = () => {
-      const storedUser = localStorage.getItem('user');
-      if (storedUser) {
-        setUser(JSON.parse(storedUser));
-      }
-      setLoading(false);
-    };
-    initAuth();
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      setUser(JSON.parse(storedUser));
+    }
   }, []);
 
-  // Login function
-  const login = async (email: string, password: string) => {
+  const login = async (username: string, password: string) => {
     try {
-      setLoading(true);
-      if (email && password) {
-        // Mock successful login
-        setUser(mockUser);
-        localStorage.setItem('user', JSON.stringify(mockUser));
-      } else {
-        throw new Error("Identifiants invalides");
-      }
-    } finally {
-      setLoading(false);
+      const response = await axios.post('http://localhost:5000/api/users/login', { username, password });
+      const userData = response.data;
+      setUser(userData);
+      localStorage.setItem('user', JSON.stringify(userData));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Login failed');
     }
   };
 
-  // Logout function
   const logout = () => {
     setUser(null);
     localStorage.removeItem('user');
   };
 
-  // Show nothing while loading
-  if (loading) {
-    return null;
-  }
+  const changePassword = async (oldPassword: string, newPassword: string) => {
+    try {
+      const config = {
+        headers: {
+          Authorization: `Bearer ${user.token}`,
+        },
+      };
+      await axios.put('http://localhost:5000/api/users/change-password', { oldPassword, newPassword }, config);
+    } catch (error: any) {
+      throw new Error(error.response?.data?.message || 'Password change failed');
+    }
+  };
 
   return (
-    <AuthContext.Provider value={{ user, loading, login, logout }}>
+    <AuthContext.Provider value={{ user, login, logout, changePassword }}>
       {children}
     </AuthContext.Provider>
   );
 };
 
-// Custom hook for using the auth context
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {
-    throw new Error("useAuth must be used within an AuthProvider");
+    throw new Error('useAuth must be used within an AuthProvider');
   }
   return context;
 };

@@ -1,4 +1,4 @@
-import React from 'react';
+// Removed unused React import as it is not necessary with the new JSX transform.
 import { Bell, Menu, UserCircle } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
@@ -27,7 +27,7 @@ const Header = ({ onMenuClick }: HeaderProps) => {
   };
 
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between h-16 px-4 bg-white border-b border-gray-200 shadow-sm lg:px-6">
+    <header className="sticky top-0 z-10 flex items-center justify-between h-16 px-4 bg-white border-b border-gray-200 shadow-sm lg:px-6 md:px-4">
       {/* Left side */}
       <div className="flex items-center">
         <button 
