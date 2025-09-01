@@ -1,120 +1,310 @@
-import React, { useState } from 'react';
-import { Plus, Search, Receipt, FileText, Trash2, Upload } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Plus, Search, Receipt, FileText, Trash2 } from 'lucide-react';
 import EditButton from '../components/EditButton';
+import { X } from 'lucide-react';
+import ClientPaymentForm from '../components/ClientPaymentForm';
+import DatePicker, { registerLocale } from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
+import { fr } from 'date-fns/locale';
+import FileUploader, { Document } from '../components/FileUploader';
+import axios from 'axios';
+import toast from 'react-hot-toast';
+import { Customer } from './Customers';
+import { Contract } from './Contrats'; // Import Contract interface
+import { Facture } from './Factures'; // Import Facture interface
+import { Accident } from './Accidents'; // Import Accident interface
+
+registerLocale('fr', fr);
 
 type PaymentType = 'espèce' | 'chèque' | 'carte bancaire' | 'virement';
-type PaymentFor = 'contract' | 'facture' | 'accident';
+type PaymentFor = 'contract' | 'facture' | 'accident' | '';
 
 interface PaymentRecord {
-  id: string;
+  _id: string;
   paymentNumber: string;
   paymentDate: string;
   paymentFor: PaymentFor;
-  referenceNumber: string;  // Contract/Invoice/Accident number
-  client: {
-    id: string;
-    name: string;
-  };
+  client: Customer;
+  contract?: Contract; // Add contract field
+  facture?: Facture; // Add facture field
+  accident?: Accident; // Add accident field
   remainingAmount: number;
-  paymentType: PaymentType;
+  paymentType: PaymentType | ''; // Allow empty string for initial state
   amountPaid: number;
-  attachmentUrl?: string;
-  attachmentName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  documents?: Document[];
 }
 
-// Sample data
-const initialPayments: PaymentRecord[] = [
-  {
-    id: '1',
-    paymentNumber: 'REG-2025-001',
-    paymentDate: '2025-05-09',
-    paymentFor: 'contract',
-    referenceNumber: 'CTR-2025-001',
-    client: {
-      id: '1',
-      name: 'Jean Dupont'
-    },
-    remainingAmount: 0,
-    paymentType: 'carte bancaire',
-    amountPaid: 1500,
-    attachmentUrl: '/attachments/payment1.pdf',
-    attachmentName: 'Reçu_Paiement_CTR-2025-001.pdf'
-  }
-];
-
 const ClientPayments = () => {
-  const [payments, setPayments] = useState(initialPayments);
+  const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [contracts, setContracts] = useState<Contract[]>([]); // New state for contracts
+  const [factures, setFactures] = useState<Facture[]>([]); // New state for factures
+  const [accidents, setAccidents] = useState<Accident[]>([]); // New state for accidents
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPayment, setSelectedPayment] = useState<PaymentRecord | null>(null);
+  const [showFormModal, setShowFormModal] = useState(false);
   const [isEditMode, setIsEditMode] = useState(false);
   const [editedPayment, setEditedPayment] = useState<PaymentRecord | null>(null);
-  
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    // We'll implement file handling when needed
-    const file = event.target.files?.[0];
-    if (file) {
-      // Handle the file upload
+  const [newAttachmentFiles, setNewAttachmentFiles] = useState<File[]>([]);
+
+  const API_URL = 'http://localhost:5000';
+  const API_URL_PAYMENTS = `${API_URL}/api/clientpayments`;
+  const API_URL_CUSTOMERS = 'http://localhost:5000/api/customers';
+  const API_URL_CONTRACTS = 'http://localhost:5000/api/contracts'; // New API URL for contracts
+  const API_URL_FACTURES = 'http://localhost:5000/api/factures'; // New API URL for factures
+  const API_URL_ACCIDENTS = 'http://localhost:5000/api/accidents'; // New API URL for accidents
+
+  const fetchPayments = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get<PaymentRecord[]>(API_URL_PAYMENTS);
+      setPayments(response.data);
+    } catch (err) {
+      console.error('Error fetching payments:', err);
+      setError('Failed to load payments. Please ensure the backend is running and the endpoint is correct.');
+      toast.error('Failed to load payments.');
+      setPayments([]);
+    } finally {
+      setLoading(false);
     }
-  };
+  }, []);
+
+  const fetchCustomers = useCallback(async () => {
+    try {
+      const response = await axios.get<Customer[]>(API_URL_CUSTOMERS);
+      setCustomers(response.data);
+    } catch (err) {
+      console.error('Error fetching customers:', err);
+      toast.error('Failed to load customers.');
+    }
+  }, []);
+
+  const fetchContracts = useCallback(async () => { // New fetch function for contracts
+    try {
+      const response = await axios.get<Contract[]>(API_URL_CONTRACTS);
+      setContracts(response.data);
+    } catch (err) {
+      console.error('Error fetching contracts:', err);
+      toast.error('Failed to load contracts.');
+    }
+  }, []);
+
+  const fetchFactures = useCallback(async () => { // New fetch function for factures
+    try {
+      const response = await axios.get<Facture[]>(API_URL_FACTURES);
+      setFactures(response.data);
+    } catch (err) {
+      console.error('Error fetching factures:', err);
+      toast.error('Failed to load factures.');
+    }
+  }, []);
+
+  const fetchAccidents = useCallback(async () => { // New fetch function for accidents
+    try {
+      const response = await axios.get<Accident[]>(API_URL_ACCIDENTS);
+      setAccidents(response.data);
+    } catch (err) {
+      console.error('Error fetching accidents:', err);
+      toast.error('Failed to load accidents.');
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchPayments();
+    fetchCustomers();
+    fetchContracts(); // Fetch contracts on component mount
+    fetchFactures(); // Fetch factures on component mount
+    fetchAccidents(); // Fetch accidents on component mount
+  }, [fetchPayments, fetchCustomers, fetchContracts, fetchFactures, fetchAccidents]);
 
   const filteredPayments = payments.filter(payment => {
     const searchString = searchTerm.toLowerCase();
+    const clientName = payment.client ? `${payment.client.prenomFr} ${payment.client.nomFr}`.toLowerCase() : '';
     return (
       payment.paymentNumber.toLowerCase().includes(searchString) ||
-      payment.client.name.toLowerCase().includes(searchString) ||
-      payment.referenceNumber.toLowerCase().includes(searchString)
+      clientName.includes(searchString)
     );
   });
 
-  const handleDeletePayment = (paymentId: string) => {
+  const handleDeletePayment = async (paymentId: string) => {
     if (confirm('Êtes-vous sûr de vouloir supprimer ce réglement ?')) {
-      setPayments(payments.filter(payment => payment.id !== paymentId));
-      setSelectedPayment(null);
+      try {
+        await axios.delete(`${API_URL_PAYMENTS}/${paymentId}`);
+        setPayments(payments.filter(payment => payment._id !== paymentId));
+        setSelectedPayment(null);
+        toast.success('Payment deleted successfully.');
+      } catch (err) {
+        console.error('Error deleting payment:', err);
+        toast.error('Failed to delete payment.');
+      }
     }
   };
 
   const handleEditPayment = (payment: PaymentRecord) => {
     setSelectedPayment(payment);
-    setEditedPayment({ ...payment });
+    const existingDocs: Document[] = (payment.documents || []).map(doc => ({
+      name: doc.name,
+      url: doc.url,
+      type: doc.type,
+      size: doc.size,
+      isNew: false,
+    }));
+    setEditedPayment({ ...payment, documents: existingDocs });
     setIsEditMode(true);
+    setShowFormModal(false);
+    setNewAttachmentFiles([]);
   };
 
   const handleNewPayment = () => {
     setSelectedPayment(null);
+    setEditedPayment(null);
     setIsEditMode(false);
-    setShowPaymentModal(true);
+    setShowFormModal(true);
+    setNewAttachmentFiles([]); // Clear new files for new payment
   };
-  
-  const handleSaveEdit = () => {
-    if (editedPayment) {
-      setPayments(payments.map(payment =>
-        payment.id === editedPayment.id ? editedPayment : payment
-      ));
-      setSelectedPayment(editedPayment);
+
+  const handleFormSubmit = async (formData: Partial<PaymentRecord>, newAttachmentFiles: File[]) => {
+    const dataToSend = new FormData();
+
+    for (const key in formData) {
+      if (Object.prototype.hasOwnProperty.call(formData, key)) {
+        const value = formData[key as keyof PaymentRecord];
+        if (key === 'client' && typeof value === 'object' && value !== null && '_id' in value && typeof (value as any)._id === 'string') {
+          dataToSend.append('client', (value as Customer)._id);
+        } else if (key === 'contract' && typeof value === 'object' && value !== null && '_id' in value && typeof (value as any)._id === 'string') {
+          dataToSend.append('contract', (value as Contract)._id); // Handle contract ID
+        } else if (key === 'facture' && typeof value === 'object' && value !== null && '_id' in value && typeof (value as any)._id === 'string') {
+          dataToSend.append('facture', (value as Facture)._id); // Handle facture ID
+        } else if (key === 'accident' && typeof value === 'object' && value !== null && '_id' in value && typeof (value as any)._id === 'string') {
+          dataToSend.append('accident', (value as Accident)._id); // Handle accident ID
+        } else if (key !== '_id' && key !== 'createdAt' && key !== 'updatedAt' && key !== 'documents' && value !== null && value !== undefined) {
+          dataToSend.append(key, value as any);
+        }
+      }
+    }
+
+    const existingDocsToKeep = formData.documents?.filter(doc => !doc.isNew) || [];
+    dataToSend.append('existingDocuments', JSON.stringify(existingDocsToKeep));
+
+    if (newAttachmentFiles.length > 0) {
+      newAttachmentFiles.forEach(file => {
+        dataToSend.append('documents', file);
+      });
+    }
+
+    try {
+      let responseData: PaymentRecord;
+      if (selectedPayment && selectedPayment._id) {
+        const response = await axios.put<PaymentRecord>(`${API_URL_PAYMENTS}/${selectedPayment._id}`, dataToSend, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        responseData = response.data;
+        const populatedPayment = {
+          ...responseData,
+          client: customers.find(c => c._id === (responseData.client as any)) || responseData.client,
+          contract: responseData.contract,
+          facture: responseData.facture,
+          accident: responseData.accident,
+        };
+        setPayments(payments.map(p => (p._id === populatedPayment._id ? populatedPayment : p)));
+        setSelectedPayment(populatedPayment);
+        toast.success('Payment updated successfully.');
+      } else {
+        const response = await axios.post<PaymentRecord>(API_URL_PAYMENTS, dataToSend, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        });
+        responseData = response.data;
+        const populatedPayment = {
+          ...responseData,
+          client: customers.find(c => c._id === (responseData.client as any)) || responseData.client,
+          contract: responseData.contract,
+          facture: responseData.facture,
+          accident: responseData.accident,
+        };
+        setPayments([...payments, populatedPayment]);
+        setSelectedPayment(populatedPayment);
+        toast.success('Payment created successfully.');
+      }
+      setShowFormModal(false);
       setIsEditMode(false);
       setEditedPayment(null);
+      setNewAttachmentFiles([]);
+    } catch (err) {
+      console.error(`Error ${selectedPayment ? 'updating' : 'creating'} payment:`, err);
+      toast.error(`Failed to ${selectedPayment ? 'update' : 'create'} payment.`);
     }
   };
 
-  const handleCancelEdit = () => {
-    setIsEditMode(false);
-    setEditedPayment(null);
-  };
-  
-  const handleInputChange = (field: keyof PaymentRecord, value: any) => {
-    if (editedPayment) {
-      const updatedPayment = { ...editedPayment };
-      
-      if (field === 'client') {
-        updatedPayment.client = { ...updatedPayment.client, ...value };
-      } else {
-        (updatedPayment[field] as any) = value;
+  const handleInputChange = (field: keyof PaymentRecord | 'clientId' | 'contractId' | 'factureId' | 'accidentId', value: any) => {
+    setEditedPayment(prev => {
+      if (!prev) return null;
+      if (field === 'clientId') {
+        const selectedCustomer = customers.find(c => c._id === value);
+        return { ...prev, client: selectedCustomer!, clientId: selectedCustomer?._id || '', clientName: selectedCustomer ? `${selectedCustomer.prenomFr} ${selectedCustomer.nomFr}` : '' };
       }
-      
-      setEditedPayment(updatedPayment);
+      if (field === 'contractId') { // New handler for contractId
+        const selectedContract = contracts.find(c => c._id === value);
+        return { ...prev, contract: selectedContract!, contractId: selectedContract?._id || '' };
+      }
+      if (field === 'factureId') { // New handler for factureId
+        const selectedFacture = factures.find(f => f._id === value);
+        return { ...prev, facture: selectedFacture!, factureId: selectedFacture?._id || '' };
+      }
+      if (field === 'accidentId') { // New handler for accidentId
+        const selectedAccident = accidents.find(a => a._id === value);
+        return { ...prev, accident: selectedAccident!, accidentId: selectedAccident?._id || '' };
+      }
+      return { ...prev, [field]: value };
+    });
+  };
+
+  const handleRemoveAttachment = async (docToRemove: Document) => {
+    if (!selectedPayment) return;
+
+    if (docToRemove.isNew) {
+      setNewAttachmentFiles(prev => prev.filter(file => URL.createObjectURL(file) !== docToRemove.url));
+      setEditedPayment(prev => ({
+        ...prev!,
+        documents: prev?.documents?.filter(doc => doc.url !== docToRemove.url) || [],
+      }));
+      toast.success('Document supprimé (localement). Enregistrez pour confirmer.');
+      return;
+    }
+
+    try {
+      await axios.delete(`${API_URL_PAYMENTS}/${selectedPayment._id}/documents`, {
+        data: { documentUrl: docToRemove.url }
+      });
+      setSelectedPayment(prev => {
+        if (!prev) return null;
+        return {
+          ...prev,
+          documents: prev.documents?.filter(doc => doc.url !== docToRemove.url),
+        };
+      });
+      setEditedPayment(prev => ({
+        ...prev!,
+        documents: prev?.documents?.filter(doc => doc.url !== docToRemove.url) || [],
+      }));
+      toast.success('Document supprimé avec succès.');
+    } catch (err) {
+      console.error('Erreur lors de la suppression du document:', err);
+      toast.error('Échec de la suppression du document.');
     }
   };
+
+  if (loading) {
+    return <div className="flex justify-center items-center h-screen"><p>Loading...</p></div>;
+  }
+
+  if (error) {
+    return <div className="flex justify-center items-center h-screen text-red-500"><p>{error}</p></div>;
+  }
 
   return (
     <div className="space-y-6">
@@ -129,28 +319,36 @@ const ClientPayments = () => {
         </button>
       </div>
 
-      {/* Search and filters */}
-      <div className="bg-white p-4 rounded-lg shadow">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="relative">
-            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-              <Search size={18} className="text-gray-400" />
-            </div>
-            <input
-              type="text"
-              placeholder="Rechercher un réglement..."
-              className="pl-10 px-4 py-2 block w-full shadow-sm focus:ring-blue-500 focus:border-blue-500 border-gray-300 rounded-md"
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
-          </div>
-        </div>
-      </div>
-
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Payments List */}
-        <div className="lg:col-span-2">
-          <div className="bg-white shadow overflow-hidden rounded-lg">
+        <div className="lg:col-span-2 space-y-4">
+          {/* Search bar */}
+          <div className="bg-white p-4 rounded-lg shadow">
+            <div className="relative">
+              <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                <Search size={18} className="text-gray-400" />
+              </div>
+              <input
+                type="text"
+                placeholder="Rechercher un réglement..."
+                className="pl-10 px-4 py-2 block w-full shadow-sm focus:ring-blue-500 focus:border-blue-500 border-gray-300 rounded-md"
+                value={searchTerm}
+                onChange={(e) => {
+                  if (isEditMode) {
+                    if (confirm('Vous avez des modifications non enregistrées. Voulez-vous continuer et perdre ces modifications?')) {
+                      setSearchTerm(e.target.value);
+                      setIsEditMode(false);
+                      setEditedPayment(null);
+                      setNewAttachmentFiles([]);
+                    }
+                  } else {
+                    setSearchTerm(e.target.value);
+                  }
+                }}
+              />
+            </div>
+          </div>
+
+          <div className="bg-white shadow overflow-x-auto rounded-lg">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
@@ -177,8 +375,8 @@ const ClientPayments = () => {
               <tbody className="bg-white divide-y divide-gray-200">
                 {filteredPayments.map((payment) => (
                   <tr
-                    key={payment.id}
-                    className={`hover:bg-gray-50 cursor-pointer ${selectedPayment?.id === payment.id ? 'bg-blue-50' : ''}`}
+                    key={payment._id}
+                    className={`hover:bg-gray-50 cursor-pointer ${selectedPayment?._id === payment._id ? 'bg-blue-50' : ''}`}
                     onClick={() => setSelectedPayment(payment)}
                   >
                     <td className="px-6 py-4 whitespace-nowrap">
@@ -188,7 +386,6 @@ const ClientPayments = () => {
                         </div>
                         <div className="ml-4">
                           <div className="text-sm font-medium text-gray-900">{payment.paymentNumber}</div>
-                          <div className="text-xs text-gray-500">Ref: {payment.referenceNumber}</div>
                         </div>
                       </div>
                     </td>
@@ -203,7 +400,7 @@ const ClientPayments = () => {
                       </span>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{payment.client.name}</div>
+                      <div className="text-sm text-gray-900">{payment.client ? `${payment.client.prenomFr} ${payment.client.nomFr}` : 'N/A'}</div>
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap">
                       <div className="text-sm text-gray-900">{payment.amountPaid.toLocaleString('fr-FR')} DH</div>
@@ -220,19 +417,17 @@ const ClientPayments = () => {
                     </td>
                     <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                       <EditButton
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
-                          setSelectedPayment(payment);
-                          setEditedPayment({ ...payment });
-                          setIsEditMode(true);
+                          handleEditPayment(payment);
                         }}
                         size="md"
                         className="mr-3"
                       />
                       <button 
-                        onClick={(e) => {
+                        onClick={(e: React.MouseEvent) => {
                           e.stopPropagation();
-                          handleDeletePayment(payment.id);
+                          handleDeletePayment(payment._id);
                         }}
                         className="text-red-600 hover:text-red-900"
                       >
@@ -246,414 +441,294 @@ const ClientPayments = () => {
           </div>
         </div>
 
-        {/* Payment Details Panel */}
         <div className="lg:col-span-1">
           {selectedPayment ? (
             <div className="bg-white shadow rounded-lg">
               <div className="border-b border-gray-200 p-4 flex justify-between items-center">
                 <h2 className="text-lg font-medium">Détails du réglement</h2>
+                {isEditMode ? (
+                  <div className="flex space-x-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (confirm('Êtes-vous sûr de vouloir annuler les modifications ?')) {
+                          setIsEditMode(false);
+                          setEditedPayment(null);
+                          setSelectedPayment(null);
+                          setNewAttachmentFiles([]);
+                        }
+                      }}
+                      className="px-3 py-1 border rounded-lg text-sm"
+                    >
+                      Annuler
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (editedPayment) {
+                          handleFormSubmit(editedPayment, newAttachmentFiles);
+                        }
+                      }}
+                      className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm"
+                    >
+                      Enregistrer
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => handleEditPayment(selectedPayment)}
+                    className="px-3 py-1 bg-blue-600 text-white rounded-lg text-sm"
+                  >
+                    Modifier
+                  </button>
+                )}
+                <button onClick={() => setSelectedPayment(null)} className="p-2">
+                  <X size={20} />
+                </button>
               </div>
-              
-              <div className="p-4 space-y-4">
-                {/* Basic Information */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">N° de Réglement</h3>
-                  <div className="mt-1 flex items-center">
-                    <Receipt size={16} className="text-gray-400 mr-2" />
-                    {isEditMode ? (
+              <div className="p-4">
+                {isEditMode && editedPayment ? (
+                  <div className="space-y-4">
+                    <div>
+                      <label htmlFor="paymentNumber" className="block text-sm font-medium text-gray-700 mb-1">N° Réglement</label>
                       <input
                         type="text"
-                        className="w-full border rounded-lg p-2"
-                        value={editedPayment?.paymentNumber}
+                        id="paymentNumber"
+                        name="paymentNumber"
+                        value={editedPayment.paymentNumber || ''}
                         onChange={(e) => handleInputChange('paymentNumber', e.target.value)}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
                       />
-                    ) : (
-                      <p className="text-sm text-gray-900">{selectedPayment.paymentNumber}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Reference Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Réglé pour</h3>
-                  <div className="mt-1 space-y-1">
-                    {isEditMode ? (
-                      <>
-                        <select
-                          className="w-full border rounded-lg p-2"
-                          value={editedPayment?.paymentFor}
-                          onChange={(e) => handleInputChange('paymentFor', e.target.value as PaymentFor)}
-                        >
-                          <option value="contract">Contrat</option>
-                          <option value="facture">Facture</option>
-                          <option value="accident">Accident</option>
-                        </select>
-                        <input
-                          type="text"
-                          className="w-full border rounded-lg p-2 mt-2"
-                          placeholder="N° Référence"
-                          value={editedPayment?.referenceNumber}
-                          onChange={(e) => handleInputChange('referenceNumber', e.target.value)}
-                        />
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-sm text-gray-900">
-                          {selectedPayment.paymentFor === 'contract' ? 'Contrat' :
-                           selectedPayment.paymentFor === 'facture' ? 'Facture' : 'Accident'}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          N° Référence: {selectedPayment.referenceNumber}
-                        </p>
-                      </>
-                    )}
-                  </div>
-                </div>
-
-                {/* Client Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Client</h3>
-                  <div className="mt-1">
-                    {isEditMode ? (
-                      <input
-                        type="text"
-                        className="w-full border rounded-lg p-2"
-                        value={editedPayment?.client.name}
-                        onChange={(e) => handleInputChange('client', { name: e.target.value })}
+                    </div>
+                    <div>
+                      <label htmlFor="paymentDate" className="block text-sm font-medium text-gray-700 mb-1">Date de Réglement</label>
+                      <DatePicker
+                        id="paymentDate"
+                        selected={editedPayment.paymentDate ? new Date(editedPayment.paymentDate) : null}
+                        onChange={(date) => handleInputChange('paymentDate', date ? date.toISOString().split('T')[0] : '')}
+                        dateFormat="dd/MM/yyyy"
+                        locale="fr"
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        placeholderText="Sélectionner une date"
+                        required
                       />
-                    ) : (
-                      <p className="text-sm text-gray-900">{selectedPayment.client.name}</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Payment Info */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Détails du paiement</h3>
-                  <div className="mt-1 space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Mode de paiement:</span>
-                      {isEditMode ? (
+                    </div>
+                    <div>
+                      <label htmlFor="paymentFor" className="block text-sm font-medium text-gray-700 mb-1">Régler pour</label>
+                      <select
+                        id="paymentFor"
+                        name="paymentFor"
+                        value={editedPayment.paymentFor || ''}
+                        onChange={(e) => handleInputChange('paymentFor', e.target.value as PaymentFor)}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
+                      >
+                        <option value="">Sélectionner le type</option>
+                        <option value="contract">Contrat</option>
+                        <option value="facture">Facture</option>
+                        <option value="accident">Accident</option>
+                      </select>
+                    </div>
+                    {editedPayment.paymentFor === 'contract' && ( // Conditionally render contract dropdown
+                      <div>
+                        <label htmlFor="contractId" className="block text-sm font-medium text-gray-700 mb-1">Contrat</label>
                         <select
-                          className="w-2/3 border rounded-lg p-2"
-                          value={editedPayment?.paymentType}
-                          onChange={(e) => handleInputChange('paymentType', e.target.value as PaymentType)}
+                          id="contractId"
+                          name="contractId"
+                          value={editedPayment.contract?._id || ''}
+                          onChange={(e) => handleInputChange('contractId', e.target.value)}
+                          className="mt-1 block w-full border rounded-lg p-2"
+                          required
                         >
-                          <option value="espèce">Espèce</option>
-                          <option value="chèque">Chèque</option>
-                          <option value="carte bancaire">Carte bancaire</option>
-                          <option value="virement">Virement</option>
+                          <option value="">Sélectionner un contrat</option>
+                          {contracts.map(contract => (
+                            <option key={contract._id} value={contract._id}>
+                              {contract.contractNumber} - {contract.client ? `${contract.client.prenomFr} ${contract.client.nomFr}` : 'N/A'}
+                            </option>
+                          ))}
                         </select>
-                      ) : (
-                        <span className="text-sm text-gray-900">{selectedPayment.paymentType}</span>
-                      )}
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-sm text-gray-500">Montant payé:</span>
-                      {isEditMode ? (
-                        <input
-                          type="number"
-                          className="w-2/3 border rounded-lg p-2"
-                          value={editedPayment?.amountPaid}
-                          onChange={(e) => handleInputChange('amountPaid', parseFloat(e.target.value))}
-                        />
-                      ) : (
-                        <span className="text-sm text-green-600">
-                          {selectedPayment.amountPaid.toLocaleString('fr-FR')} DH
-                        </span>
-                      )}
-                    </div>
-                    {(selectedPayment.remainingAmount > 0 || isEditMode) && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-sm text-gray-500">Reste à payer:</span>
-                        {isEditMode ? (
-                          <input
-                            type="number"
-                            className="w-2/3 border rounded-lg p-2"
-                            value={editedPayment?.remainingAmount}
-                            onChange={(e) => handleInputChange('remainingAmount', parseFloat(e.target.value))}
-                          />
-                        ) : (
-                          <span className="text-sm text-amber-600">
-                            {selectedPayment.remainingAmount.toLocaleString('fr-FR')} DH
-                          </span>
-                        )}
                       </div>
                     )}
-                  </div>
-                </div>
-
-                {/* Payment Date */}
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500">Date de paiement</h3>
-                  <div className="mt-1">
-                    {isEditMode ? (
-                      <input
-                        type="date"
-                        className="w-full border rounded-lg p-2"
-                        value={editedPayment?.paymentDate}
-                        onChange={(e) => handleInputChange('paymentDate', e.target.value)}
-                      />
-                    ) : (
-                      <p className="text-sm text-gray-900">
-                        {new Date(selectedPayment.paymentDate).toLocaleDateString('fr-FR')}
-                      </p>
+                    {editedPayment.paymentFor === 'facture' && ( // Conditionally render facture dropdown
+                      <div>
+                        <label htmlFor="factureId" className="block text-sm font-medium text-gray-700 mb-1">Facture</label>
+                        <select
+                          id="factureId"
+                          name="factureId"
+                          value={editedPayment.facture?._id || ''}
+                          onChange={(e) => handleInputChange('factureId', e.target.value)}
+                          className="mt-1 block w-full border rounded-lg p-2"
+                          required
+                        >
+                          <option value="">Sélectionner une facture</option>
+                          {factures.map(facture => (
+                            <option key={facture._id} value={facture._id}>
+                              {facture.totalTTC} DH - {facture.client ? `${facture.client.prenomFr} ${facture.client.nomFr}` : 'N/A'}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
                     )}
-                  </div>
-                </div>
-
-                {/* Attachment */}
-                {selectedPayment.attachmentUrl && (
-                  <div>
-                    <h3 className="text-sm font-medium text-gray-500">Pièce jointe</h3>
-                    <div className="mt-1">
-                      <a 
-                        href={selectedPayment.attachmentUrl}
-                        className="flex items-center text-sm text-blue-600 hover:text-blue-800"
-                        target="_blank"
-                        rel="noopener noreferrer"
+                    {editedPayment.paymentFor === 'accident' && ( // Conditionally render accident dropdown
+                      <div>
+                        <label htmlFor="accidentId" className="block text-sm font-medium text-gray-700 mb-1">Accident</label>
+                        <select
+                          id="accidentId"
+                          name="accidentId"
+                          value={editedPayment.accident?._id || ''}
+                          onChange={(e) => handleInputChange('accidentId', e.target.value)}
+                          className="mt-1 block w-full border rounded-lg p-2"
+                          required
+                        >
+                          <option value="">Sélectionner un accident</option>
+                          {accidents.map(accident => (
+                            <option key={accident._id} value={accident._id}>
+                              {accident.numeroContrat} - {accident.clientNom} - {new Date(accident.dateAccident).toLocaleDateString('fr-FR')}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div>
+                      <label htmlFor="clientId" className="block text-sm font-medium text-gray-700 mb-1">Client</label>
+                      <select
+                        id="clientId"
+                        name="clientId"
+                        value={editedPayment.client?._id || ''}
+                        onChange={(e) => handleInputChange('clientId', e.target.value)}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
                       >
-                        <FileText size={16} className="mr-2" />
-                        {selectedPayment.attachmentName}
-                      </a>
+                        <option value="">Sélectionner un client</option>
+                        {customers
+                          .filter(customer => customer.status === 'Actif')
+                          .map(customer => (
+                            <option key={customer._id} value={customer._id}>
+                              {`${customer.prenomFr} ${customer.nomFr}`}
+                            </option>
+                          ))
+                        }
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="amountPaid" className="block text-sm font-medium text-gray-700 mb-1">Montant Payé</label>
+                      <input
+                        type="number"
+                        id="amountPaid"
+                        name="amountPaid"
+                        value={editedPayment.amountPaid || 0}
+                        onChange={(e) => handleInputChange('amountPaid', parseFloat(e.target.value))}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="remainingAmount" className="block text-sm font-medium text-gray-700 mb-1">Montant Restant</label>
+                      <input
+                        type="number"
+                        id="remainingAmount"
+                        name="remainingAmount"
+                        value={editedPayment.remainingAmount || 0}
+                        onChange={(e) => handleInputChange('remainingAmount', parseFloat(e.target.value))}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
+                      />
+                    </div>
+                    <div>
+                      <label htmlFor="paymentType" className="block text-sm font-medium text-gray-700 mb-1">Type de Paiement</label>
+                      <select
+                        id="paymentType"
+                        name="paymentType"
+                        value={editedPayment.paymentType || ''}
+                        onChange={(e) => handleInputChange('paymentType', e.target.value as PaymentType)}
+                        className="mt-1 block w-full border rounded-lg p-2"
+                        required
+                      >
+                        <option value="">Sélectionner le type</option>
+                        <option value="espèce">Espèce</option>
+                        <option value="chèque">Chèque</option>
+                        <option value="carte bancaire">Carte Bancaire</option>
+                        <option value="virement">Virement</option>
+                      </select>
+                    </div>
+                    <div className="mt-4">
+                      <h4 className="text-lg font-medium mb-2">Documents Associés:</h4>
+                      <FileUploader
+                        api_url={API_URL}
+                        existingDocuments={editedPayment.documents || []}
+                        newFiles={newAttachmentFiles}
+                        onNewFilesChange={setNewAttachmentFiles}
+                        onRemoveExistingDocument={handleRemoveAttachment}
+                        label=""
+                        multiple={true}
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    <div><h3 className="text-lg font-medium">N° Réglement</h3><p>{selectedPayment.paymentNumber}</p></div>
+                    <div><h3 className="text-lg font-medium">Date de Réglement</h3><p>{new Date(selectedPayment.paymentDate).toLocaleDateString('fr-FR')}</p></div>
+                    <div><h3 className="text-lg font-medium">Régler pour</h3><p>{selectedPayment.paymentFor}</p></div>
+                    {selectedPayment.paymentFor === 'contract' && ( // Display contract details
+                      <div><h3 className="text-lg font-medium">Contrat</h3><p>{selectedPayment.contract ? `${selectedPayment.contract.contractNumber} - ${selectedPayment.contract.client ? `${selectedPayment.contract.client.prenomFr} ${selectedPayment.contract.client.nomFr}` : 'N/A'}` : 'N/A'}</p></div>
+                    )}
+                    {selectedPayment.paymentFor === 'facture' && ( // Display facture details
+                      <div><h3 className="text-lg font-medium">Facture</h3><p>{selectedPayment.facture ? `${selectedPayment.facture.totalTTC} DH - ${selectedPayment.facture.client ? `${selectedPayment.facture.client.prenomFr} ${selectedPayment.facture.client.nomFr}` : 'N/A'}` : 'N/A'}</p></div>
+                    )}
+                    {selectedPayment.paymentFor === 'accident' && ( // Display accident details
+                      <div><h3 className="text-lg font-medium">Accident</h3><p>{selectedPayment.accident ? `${selectedPayment.accident.numeroContrat} - ${selectedPayment.accident.clientNom} - ${new Date(selectedPayment.accident.dateAccident).toLocaleDateString('fr-FR')}` : 'N/A'}</p></div>
+                    )}
+                    <div><h3 className="text-lg font-medium">Client</h3><p>{selectedPayment.client ? `${selectedPayment.client.prenomFr} ${selectedPayment.client.nomFr}` : 'N/A'}</p></div>
+                    <div><h3 className="text-lg font-medium">Montant Payé</h3><p>{selectedPayment.amountPaid.toLocaleString('fr-FR')} DH</p></div>
+                    <div><h3 className="text-lg font-medium">Montant Restant</h3><p>{selectedPayment.remainingAmount.toLocaleString('fr-FR')} DH</p></div>
+                    <div><h3 className="text-lg font-medium">Type de Paiement</h3><p>{selectedPayment.paymentType}</p></div>
+                    <div className="mt-4">
+                      <h4 className="text-lg font-medium mb-2">Documents Associés:</h4>
+                      {selectedPayment?.documents && selectedPayment.documents.length > 0 ? (
+                        <FileUploader
+                          api_url={API_URL}
+                          existingDocuments={selectedPayment.documents}
+                          newFiles={[]}
+                          onNewFilesChange={() => {}}
+                          onRemoveExistingDocument={handleRemoveAttachment}
+                          label=""
+                          readOnly={true}
+                          multiple={true}
+                        />
+                      ) : (
+                        <p className="text-sm text-gray-500">Aucun document</p>
+                      )}
                     </div>
                   </div>
                 )}
-
-                <div className="pt-4 border-t">
-                  {isEditMode ? (
-                    <div className="flex space-x-3">
-                      <button 
-                        onClick={handleCancelEdit}
-                        className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        Annuler
-                      </button>
-                      <button 
-                        onClick={handleSaveEdit}
-                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        Enregistrer
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex space-x-3">
-                      <button 
-                        onClick={() => handleEditPayment(selectedPayment)}
-                        className="flex-1 bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        Modifier
-                      </button>
-                      <button 
-                        onClick={() => handleDeletePayment(selectedPayment.id)}
-                        className="flex-1 border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm font-medium hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                      >
-                        Supprimer
-                      </button>
-                    </div>
-                  )}
-                </div>
               </div>
             </div>
           ) : (
-            <div className="bg-white shadow rounded-lg p-6">
-              <div className="flex flex-col items-center justify-center text-center h-full py-10">
-                <Receipt size={64} className="text-gray-300 mb-4" />
-                <h3 className="text-lg font-medium text-gray-800 mb-2">Aucun réglement sélectionné</h3>
-                <p className="text-gray-500 mb-4">Sélectionnez un réglement pour voir ses détails</p>
-                <button 
-                  onClick={handleNewPayment}
-                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 flex items-center"
-                >
-                  <Plus size={16} className="mr-2" />
-                  Nouveau réglement
-                </button>
-              </div>
+            <div className="bg-white shadow rounded-lg p-6 text-center">
+              <Receipt size={64} className="mx-auto mb-4 text-gray-300" />
+              <h3 className="text-lg font-medium text-gray-800 mb-2">Aucun réglement sélectionné</h3>
+              <p className="text-gray-500 mb-4">Sélectionnez un réglement pour voir ses détails ou créez-en un nouveau.</p>
             </div>
           )}
         </div>
       </div>
 
-      {/* Payment Modal */}
-      {showPaymentModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-4xl max-h-[90vh] overflow-y-auto">
-            <h2 className="text-xl font-bold mb-4">{isEditMode ? 'Modifier Réglement' : 'Nouveau Réglement'}</h2>
-            <form className="space-y-6">
-              {/* Basic Information */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Informations réglement</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      N° réglement (*)
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full border rounded-lg p-2"
-                      placeholder="REG-2025-XXX"
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.paymentNumber : ''}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Date de réglement (*)
-                    </label>
-                    <input
-                      type="date"
-                      className="w-full border rounded-lg p-2"
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.paymentDate : ''}
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Régler (*)
-                    </label>
-                    <select 
-                      className="w-full border rounded-lg p-2" 
-                      required
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.paymentFor : ''}
-                    >
-                      <option value="">Sélectionner le type</option>
-                      <option value="contract">Contrat</option>
-                      <option value="facture">Facture</option>
-                      <option value="accident">Accident</option>
-                    </select>
-                  </div>
-                </div>
-              </section>
-
-              {/* Reference Information */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Information référence</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      N° de référence (*)
-                    </label>
-                    <select 
-                      className="w-full border rounded-lg p-2" 
-                      required
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.referenceNumber : ''}
-                    >
-                      <option value="">Sélectionner une référence</option>
-                      {/* Will be populated based on selected type */}
-                      {isEditMode && selectedPayment && (
-                        <option value={selectedPayment.referenceNumber}>{selectedPayment.referenceNumber}</option>
-                      )}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Client
-                    </label>
-                    <input
-                      type="text"
-                      className="w-full border rounded-lg p-2 bg-gray-50"
-                      placeholder="Auto-rempli"
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.client.name : ''}
-                      disabled
-                    />
-                  </div>
-                </div>
-              </section>
-
-              {/* Payment Information */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Information paiement</h3>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Montant restant
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full border rounded-lg p-2 bg-gray-50"
-                      placeholder="0.00"
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.remainingAmount : 0}
-                      disabled
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Type paiement (*)
-                    </label>
-                    <select 
-                      className="w-full border rounded-lg p-2" 
-                      required
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.paymentType : ''}
-                    >
-                      <option value="">Sélectionner</option>
-                      <option value="espèce">Espèce</option>
-                      <option value="chèque">Chèque</option>
-                      <option value="carte bancaire">Carte bancaire</option>
-                      <option value="virement">Virement</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Montant payé (*)
-                    </label>
-                    <input
-                      type="number"
-                      className="w-full border rounded-lg p-2"
-                      placeholder="0.00"
-                      defaultValue={isEditMode && selectedPayment ? selectedPayment.amountPaid : ''}
-                      required
-                    />
-                  </div>
-                </div>
-              </section>
-
-              {/* Attachment Section */}
-              <section className="border-b pb-4">
-                <h3 className="font-semibold mb-3">Pièce jointe</h3>
-                <div className="mt-1 flex justify-center px-6 pt-5 pb-6 border-2 border-gray-300 border-dashed rounded-lg">
-                  <div className="space-y-1 text-center">
-                    <Upload className="mx-auto h-12 w-12 text-gray-400" />
-                    <div className="flex text-sm text-gray-600">
-                      <label
-                        htmlFor="file-upload"
-                        className="relative cursor-pointer bg-white rounded-md font-medium text-blue-600 hover:text-blue-500 focus-within:outline-none focus-within:ring-2 focus-within:ring-offset-2 focus-within:ring-blue-500"
-                      >
-                        <span>Télécharger un fichier</span>
-                        <input
-                          id="file-upload"
-                          name="file-upload"
-                          type="file"
-                          className="sr-only"
-                          onChange={handleFileChange}
-                        />
-                      </label>
-                      <p className="pl-1">ou glisser et déposer</p>
-                    </div>
-                    <p className="text-xs text-gray-500">
-                      PDF, PNG, JPG, GIF jusqu'à 10MB
-                    </p>
-                  </div>
-                </div>
-              </section>
-
-              <div className="flex justify-end space-x-4">
-                <button
-                  type="button"
-                  onClick={() => setShowPaymentModal(false)}
-                  className="px-4 py-2 border rounded-lg"
-                >
-                  Annuler
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 bg-blue-600 text-white rounded-lg"
-                >
-                  {isEditMode ? 'Mettre à jour' : 'Créer Réglement'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+      {showFormModal && (
+        <ClientPaymentForm
+          initialData={isEditMode ? selectedPayment : null}
+          customers={customers}
+          contracts={contracts} // Pass contracts to the form
+          factures={factures} // Pass factures to the form
+          accidents={accidents} // Pass accidents to the form
+          onSubmit={handleFormSubmit}
+          onClose={() => setShowFormModal(false)}
+          isEditMode={isEditMode}
+          newAttachmentFiles={newAttachmentFiles} // Pass newAttachmentFiles
+          setNewAttachmentFiles={setNewAttachmentFiles} // Pass setNewAttachmentFiles
+          handleRemoveAttachment={handleRemoveAttachment} // Pass handleRemoveAttachment
+        />
       )}
     </div>
   );

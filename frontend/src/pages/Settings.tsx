@@ -1,72 +1,101 @@
-import React from 'react';
+
+import { useState, FormEvent } from 'react';
+import { useAuth } from '../context/AuthContext';
+import toast from 'react-hot-toast';
 
 const Settings = () => {
+  const { changePassword } = useAuth();
+  const [oldPassword, setOldPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmNewPassword, setConfirmNewPassword] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+
+  const handleChangePassword = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    if (newPassword !== confirmNewPassword) {
+      toast.error('Les nouveaux mots de passe ne correspondent pas.');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      toast.error('Le nouveau mot de passe doit contenir au moins 6 caractères.');
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      await changePassword(oldPassword, newPassword);
+      toast.success('Mot de passe mis à jour avec succès.');
+      setOldPassword('');
+      setNewPassword('');
+      setConfirmNewPassword('');
+    } catch (error: any) {
+      console.error("Password change error:", error);
+      toast.error(error.message || 'Erreur lors de la mise à jour du mot de passe.');
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold mb-6">Paramètres</h1>
       <div className="bg-white rounded-lg shadow p-6">
-        <div className="space-y-6">
+        <form onSubmit={handleChangePassword} className="space-y-6">
           <section>
-            <h2 className="text-lg font-medium mb-4">Paramètres généraux</h2>
+            <h2 className="text-lg font-medium mb-4">Changer le mot de passe</h2>
             <div className="space-y-4">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Nom de l'entreprise
+                  Ancien mot de passe
                 </label>
                 <input
-                  type="text"
+                  type="password"
+                  value={oldPassword}
+                  onChange={(e) => setOldPassword(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="Entrez le nom de votre entreprise"
+                  required
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email de contact
+                  Nouveau mot de passe
                 </label>
                 <input
-                  type="email"
+                  type="password"
+                  value={newPassword}
+                  onChange={(e) => setNewPassword(e.target.value)}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  placeholder="contact@entreprise.com"
+                  required
                 />
               </div>
-            </div>
-          </section>
-          
-          <section>
-            <h2 className="text-lg font-medium mb-4">Préférences de notification</h2>
-            <div className="space-y-3">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="emailNotif"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-                />
-                <label htmlFor="emailNotif" className="ml-2 text-sm text-gray-700">
-                  Notifications par email
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirmer le nouveau mot de passe
                 </label>
-              </div>
-              <div className="flex items-center">
                 <input
-                  type="checkbox"
-                  id="smsNotif"
-                  className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                  type="password"
+                  value={confirmNewPassword}
+                  onChange={(e) => setConfirmNewPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
                 />
-                <label htmlFor="smsNotif" className="ml-2 text-sm text-gray-700">
-                  Notifications par SMS
-                </label>
               </div>
             </div>
           </section>
 
           <div className="pt-4">
             <button
-              type="button"
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+              type="submit"
+              disabled={isLoading}
+              className={`px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+                isLoading ? 'opacity-70 cursor-not-allowed' : ''
+              }`}
             >
-              Sauvegarder les modifications
+              {isLoading ? 'Mise à jour...' : 'Changer le mot de passe'}
             </button>
           </div>
-        </div>
+        </form>
       </div>
     </div>
   );

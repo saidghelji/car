@@ -1,38 +1,31 @@
-import React, { useState } from 'react';
+import { useState, useEffect, FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Car } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
 
 const Login = () => {
-  const [email, setEmail] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  
+
   const navigate = useNavigate();
-  const { login, user, loading } = useAuth();
+  const { login, user } = useAuth();
 
-  // Don't render anything while checking authentication
-  if (loading) {
-    return null;
-  }
-
-  // Redirect if already logged in
-  React.useEffect(() => {
+  useEffect(() => {
     if (user) {
       const lastPath = localStorage.getItem('lastPath') || '/';
       navigate(lastPath);
     }
   }, [user, navigate]);
 
-  const handleLogin = async (e: React.FormEvent) => {
+  const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    
+
     try {
       setIsLoading(true);
-      await login(email, password);
-      const lastPath = localStorage.getItem('lastPath') || '/';
-      navigate(lastPath);
+      await login(username, password);
+      // Navigation handled by useEffect now
     } catch (error) {
       console.error("Login error:", error);
       toast.error("Échec de la connexion. Veuillez vérifier vos identifiants.");
@@ -61,20 +54,20 @@ const Login = () => {
         <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleLogin}>
             <div>
-              <label htmlFor="email" className="block text-sm font-medium text-gray-700">
-                Email
+              <label htmlFor="username" className="block text-sm font-medium text-gray-700">
+                Nom d'utilisateur
               </label>
               <div className="mt-1">
                 <input
-                  id="email"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
+                  id="username"
+                  name="username"
+                  type="text"
+                  autoComplete="username"
                   required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
                   className="appearance-none block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm placeholder-gray-400 focus:outline-none focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-                  placeholder="admin@example.com"
+                  placeholder="admin"
                 />
               </div>
             </div>
@@ -131,29 +124,6 @@ const Login = () => {
             </div>
           </form>
 
-          <div className="mt-6">
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center">
-                <div className="w-full border-t border-gray-300"></div>
-              </div>
-              <div className="relative flex justify-center text-sm">
-                <span className="px-2 bg-white text-gray-500">Pour la démo</span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-1 gap-3">
-              <button
-                type="button"
-                onClick={() => {
-                  setEmail('admin@example.com');
-                  setPassword('password');
-                }}
-                className="w-full inline-flex justify-center py-2 px-4 border border-gray-300 rounded-md shadow-sm bg-white text-sm font-medium text-gray-500 hover:bg-gray-50"
-              >
-                Remplir avec les identifiants de démo
-              </button>
-            </div>
-          </div>
         </div>
       </div>
     </div>
