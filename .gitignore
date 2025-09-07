@@ -26,3 +26,6 @@ dist-ssr
 # SQLite and uploads
 *.sqlite
 uploads/
+
+# Explicit backend uploads
+backend/uploads/
