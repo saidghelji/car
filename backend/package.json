@@ -4,8 +4,12 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "start": "node server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "nodemon server.js",
+    "migrate": "sequelize db:migrate --config ./config/config.js",
+    "migrate:undo": "sequelize db:migrate:undo --config ./config/config.js",
+  "sync": "node scripts/sync.js",
+  "smoke": "node scripts/smoke.js",
+  "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
   "author": "",
@@ -13,14 +17,19 @@
   "type": "commonjs",
   "dependencies": {
     "axios": "^1.11.0",
+    "backend": "file:",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^5.1.0",
     "express-async-handler": "^1.2.0",
     "jsonwebtoken": "^9.0.2",
-    "mongoose": "^8.17.0",
     "multer": "^2.0.2",
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "pg": "^8.11.0",
+    "pg-hstore": "^2.3.4",
+    "sequelize": "^6.32.1",
+    "sequelize-cli": "^6.6.1",
+    "sqlite3": "^5.1.7"
   }
 }

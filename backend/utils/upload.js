@@ -1,25 +1,13 @@
 const multer = require('multer');
-const aws = require('aws-sdk');
-const multerS3 = require('multer-s3');
 const path = require('path');
 
-// Configure AWS S3
-const s3 = new aws.S3({
-  accessKeyId: process.env.AWS_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
-  region: process.env.AWS_REGION
-});
-
-// Set storage engine for S3
-const storage = multerS3({
-  s3: s3,
-  bucket: process.env.S3_BUCKET_NAME,
-  acl: 'public-read', // Make uploaded files publicly readable
-  metadata: function (req, file, cb) {
-    cb(null, { fieldName: file.fieldname });
+// Set storage engine
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, path.join(__dirname, '../uploads')); // Ensure correct path to uploads folder
   },
-  key: function (req, file, cb) {
-    cb(null, Date.now().toString() + '-' + file.originalname);
+  filename: function (req, file, cb) {
+    cb(null, file.fieldname + '-' + Date.now() + path.extname(file.originalname));
   }
 });
 

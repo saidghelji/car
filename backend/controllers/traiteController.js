@@ -1,5 +1,6 @@
 const asyncHandler = require('express-async-handler');
-const Traite = require('../models/Traite');
+const Traite = require('../models/Traite.model');
+const Vehicle = require('../models/Vehicle.model');
 const fs = require('fs');
 const path = require('path');
 
@@ -7,7 +8,7 @@ const path = require('path');
 // @route   GET /api/traites
 // @access  Private
 const getTraites = asyncHandler(async (req, res) => {
-  const traites = await Traite.find({}).populate('vehicle');
+  const traites = await Traite.findAll({ include: [{ model: Vehicle, as: 'vehicle' }] });
   res.status(200).json(traites);
 });
 
@@ -15,7 +16,7 @@ const getTraites = asyncHandler(async (req, res) => {
 // @route   GET /api/traites/:id
 // @access  Private
 const getTraiteById = asyncHandler(async (req, res) => {
-  const traite = await Traite.findById(req.params.id).populate('vehicle');
+  const traite = await Traite.findByPk(req.params.id, { include: [{ model: Vehicle, as: 'vehicle' }] });
 
   if (traite) {
     res.json(traite);
@@ -33,13 +34,13 @@ const createTraite = asyncHandler(async (req, res) => {
 
   const documents = req.files ? req.files.map(file => ({
     name: file.originalname,
-    url: file.path,
+    url: file.path.replace(/\\/g, '/'),
     type: file.mimetype,
     size: file.size,
   })) : [];
 
-  const traite = new Traite({
-    vehicle,
+  const createdTraite = await Traite.create({
+    vehicleId: vehicle,
     mois,
     annee,
     montant,
@@ -49,8 +50,8 @@ const createTraite = asyncHandler(async (req, res) => {
     documents,
   });
 
-  const createdTraite = await traite.save();
-  res.status(201).json(createdTraite);
+  const populated = await Traite.findByPk(createdTraite.id, { include: [{ model: Vehicle, as: 'vehicle' }] });
+  res.status(201).json(populated);
 });
 
 // @desc    Update a traite
@@ -59,33 +60,32 @@ const createTraite = asyncHandler(async (req, res) => {
 const updateTraite = asyncHandler(async (req, res) => {
   const { vehicle, mois, annee, montant, datePaiement, reference, notes, existingDocuments } = req.body;
 
-  const traite = await Traite.findById(req.params.id);
+  const traite = await Traite.findByPk(req.params.id);
 
   if (traite) {
-    traite.vehicle = vehicle || traite.vehicle;
-    traite.mois = mois || traite.mois;
-    traite.annee = annee || traite.annee;
-    traite.montant = montant || traite.montant;
-    traite.datePaiement = datePaiement || traite.datePaiement;
-    traite.reference = reference || traite.reference;
-    traite.notes = notes || traite.notes;
+    const updatedData = {};
+    if (vehicle !== undefined) updatedData.vehicleId = vehicle;
+    if (mois !== undefined) updatedData.mois = mois;
+    if (annee !== undefined) updatedData.annee = annee;
+    if (montant !== undefined) updatedData.montant = montant;
+    if (datePaiement !== undefined) updatedData.datePaiement = datePaiement;
+    if (reference !== undefined) updatedData.reference = reference;
+    if (notes !== undefined) updatedData.notes = notes;
 
-    const updatedDocuments = existingDocuments ? JSON.parse(existingDocuments) : [];
-
-    if (req.files) {
-      req.files.forEach(file => {
-        updatedDocuments.push({
-          name: file.originalname,
-          url: file.path,
-          type: file.mimetype,
-          size: file.size,
-        });
-      });
+    let updatedDocuments = [];
+  if (existingDocuments) {
+      try {
+        updatedDocuments = Array.isArray(existingDocuments) ? existingDocuments : JSON.parse(existingDocuments);
+      } catch (e) {
+        updatedDocuments = [];
+      }
     }
 
-    traite.documents = updatedDocuments;
+    const newDocs = req.files ? req.files.map(file => ({ name: file.originalname, url: file.path.replace(/\\/g, '/'), type: file.mimetype, size: file.size })) : [];
+    updatedData.documents = [...updatedDocuments, ...newDocs];
 
-    const updatedTraite = await traite.save();
+    await traite.update(updatedData);
+    const updatedTraite = await Traite.findByPk(req.params.id, { include: [{ model: Vehicle, as: 'vehicle' }] });
     res.json(updatedTraite);
   } else {
     res.status(404);
@@ -97,10 +97,10 @@ const updateTraite = asyncHandler(async (req, res) => {
 // @route   DELETE /api/traites/:id
 // @access  Private
 const deleteTraite = asyncHandler(async (req, res) => {
-  const traite = await Traite.findById(req.params.id);
+  const traite = await Traite.findByPk(req.params.id);
 
   if (traite) {
-    await traite.deleteOne();
+    await traite.destroy();
     res.json({ message: 'Traite removed' });
   } else {
     res.status(404);
@@ -112,35 +112,35 @@ const deleteTraite = asyncHandler(async (req, res) => {
 // @route   DELETE /api/traites/:id/documents
 // @access  Private
 const deleteTraiteDocument = asyncHandler(async (req, res) => {
-    const { documentName } = req.body;
-    const traite = await Traite.findById(req.params.id);
-  
-    if (traite) {
-      const documentIndex = traite.documents.findIndex(doc => doc.name === documentName);
-  
-      if (documentIndex > -1) {
-        const document = traite.documents[documentIndex];
-        const filePath = path.join(__dirname, '..', document.url);
-  
-        fs.unlink(filePath, (err) => {
-          if (err) {
-            console.error(err);
-            // Decide if you want to stop or continue if file deletion fails
-          }
-        });
-  
-        traite.documents.splice(documentIndex, 1);
-        await traite.save();
-        res.json({ message: 'Document removed' });
-      } else {
-        res.status(404);
-        throw new Error('Document not found');
-      }
+  const { documentName } = req.body;
+  const traite = await Traite.findByPk(req.params.id);
+
+  if (traite) {
+    const documentIndex = traite.documents.findIndex(doc => doc.name === documentName);
+
+    if (documentIndex > -1) {
+      const document = traite.documents[documentIndex];
+      const filePath = path.join(__dirname, '..', document.url);
+
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error(err);
+        }
+      });
+
+      const newDocs = [...traite.documents];
+      newDocs.splice(documentIndex, 1);
+      await traite.update({ documents: newDocs });
+      res.json({ message: 'Document removed' });
     } else {
       res.status(404);
-      throw new Error('Traite not found');
+      throw new Error('Document not found');
     }
-  });
+  } else {
+    res.status(404);
+    throw new Error('Traite not found');
+  }
+});
 
 module.exports = {
   getTraites,

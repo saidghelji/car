@@ -1,11 +1,13 @@
 const asyncHandler = require('express-async-handler');
-const Reservation = require('../models/Reservation');
+const Reservation = require('../models/Reservation.model');
+const Customer = require('../models/Customer.model');
+const Vehicle = require('../models/Vehicle.model');
 
 // @desc    Get all reservations
 // @route   GET /api/reservations
 // @access  Private
 const getReservations = asyncHandler(async (req, res) => {
-  const reservations = await Reservation.find({}).populate('customer').populate('vehicle');
+  const reservations = await Reservation.findAll({ order: [['createdAt', 'DESC']], include: [{ model: Customer, as: 'customer' }, { model: Vehicle, as: 'vehicle' }] });
   res.status(200).json(reservations);
 });
 
@@ -13,10 +15,10 @@ const getReservations = asyncHandler(async (req, res) => {
 // @route   GET /api/reservations/:id
 // @access  Private
 const getReservationById = asyncHandler(async (req, res) => {
-  const reservation = await Reservation.findById(req.params.id).populate('customer').populate('vehicle');
-
+  const reservation = await Reservation.findByPk(req.params.id);
   if (reservation) {
-    res.json(reservation);
+    const populated = await Reservation.findByPk(reservation.id, { include: [{ model: Customer, as: 'customer' }, { model: Vehicle, as: 'vehicle' }] });
+    res.json(populated);
   } else {
     res.status(404);
     throw new Error('Reservation not found');
@@ -35,29 +37,38 @@ const createReservation = asyncHandler(async (req, res) => {
   }
 
   // Generate a unique reservation number
-  const latestReservation = await Reservation.findOne().sort({ createdAt: -1 });
+  const latestReservation = await Reservation.findOne({ order: [['createdAt', 'DESC']] });
   let newReservationNumber = 'RES-0001';
   if (latestReservation && latestReservation.reservationNumber) {
     const lastNumber = parseInt(latestReservation.reservationNumber.split('-')[1]);
     newReservationNumber = `RES-${String(lastNumber + 1).padStart(4, '0')}`;
   }
 
-  const reservation = new Reservation({
+  let createdReservation;
+  const payload = {
     reservationNumber: newReservationNumber,
     reservationDate,
     startDate,
     endDate,
     duration,
-    status,
-    customer,
-    vehicle,
+    status: normalizeStatus(status),
+    customerId: customer,
+    vehicleId: vehicle,
     totalAmount,
     advance,
     notes,
-  });
+  };
+  console.log('Reservation.create payload:', payload);
+  try {
+    createdReservation = await Reservation.create(payload);
+  } catch (err) {
+    console.error('Reservation.create error:', err);
+    const dbError = err.parent || err.original || err;
+    return res.status(500).json({ message: err.message, dbError: dbError, payload });
+  }
 
-  const createdReservation = await reservation.save();
-  res.status(201).json(createdReservation);
+  const populated = await Reservation.findByPk(createdReservation.id, { include: [{ model: Customer, as: 'customer' }, { model: Vehicle, as: 'vehicle' }] });
+  res.status(201).json(populated);
 });
 
 // @desc    Update a reservation
@@ -66,38 +77,51 @@ const createReservation = asyncHandler(async (req, res) => {
 const updateReservation = asyncHandler(async (req, res) => {
   const { reservationNumber, reservationDate, startDate, endDate, duration, status, customer, vehicle, totalAmount, advance, notes } = req.body;
 
-  const reservation = await Reservation.findById(req.params.id);
+  const reservation = await Reservation.findByPk(req.params.id);
 
   if (reservation) {
-    // reservation.reservationNumber is now auto-generated, so we don't update it from req.body
-    // If you need to allow manual updates, you would re-add the line above.
-    reservation.reservationDate = reservationDate || reservation.reservationDate;
-    reservation.startDate = startDate || reservation.startDate;
-    reservation.endDate = endDate || reservation.endDate;
-    reservation.duration = duration || reservation.duration;
-    reservation.status = status || reservation.status;
-    reservation.customer = customer || reservation.customer;
-    reservation.vehicle = vehicle || reservation.vehicle;
-    reservation.totalAmount = totalAmount || reservation.totalAmount;
-    reservation.advance = advance || reservation.advance;
-    reservation.notes = notes || reservation.notes;
-
-    const updatedReservation = await reservation.save();
-    res.json(updatedReservation);
+    const updates = {};
+    if (reservationDate !== undefined) updates.reservationDate = reservationDate;
+    if (startDate !== undefined) updates.startDate = startDate;
+    if (endDate !== undefined) updates.endDate = endDate;
+    if (duration !== undefined) updates.duration = duration;
+  if (status !== undefined) updates.status = normalizeStatus(status);
+    if (customer !== undefined) updates.customerId = customer;
+    if (vehicle !== undefined) updates.vehicleId = vehicle;
+    if (totalAmount !== undefined) updates.totalAmount = totalAmount;
+    if (advance !== undefined) updates.advance = advance;
+    if (notes !== undefined) updates.notes = notes;
+    await reservation.update(updates);
+  const populated = await Reservation.findByPk(reservation.id, { include: [{ model: Customer, as: 'customer' }, { model: Vehicle, as: 'vehicle' }] });
+  res.json(populated);
   } else {
     res.status(404);
     throw new Error('Reservation not found');
   }
 });
 
+// helper to map incoming status values to the model ENUM
+function normalizeStatus(input) {
+  if (!input) return undefined;
+  const s = String(input).toLowerCase();
+  if (['en_cours', 'ongoing', 'in_progress', 'in progress', 'encours'].includes(s)) return 'en_cours';
+  if (['validee', 'validated', 'confirmed', 'confirmé', 'confirm', 'valide'].includes(s)) return 'validee';
+  if (['annulee', 'cancelled', 'cancel', 'annule', 'canceled'].includes(s)) return 'annulee';
+  if (['fin_de_periode', 'ended', 'finished', 'complete', 'completed'].includes(s)) return 'fin_de_periode';
+  // fallback: if it already matches one of the allowed enums, return it
+  if (['en_cours', 'validee', 'annulee', 'fin_de_periode'].includes(s)) return s;
+  // otherwise undefined so the model default can apply
+  return undefined;
+}
+
 // @desc    Delete a reservation
 // @route   DELETE /api/reservations/:id
 // @access  Private
 const deleteReservation = asyncHandler(async (req, res) => {
-  const reservation = await Reservation.findById(req.params.id);
+  const reservation = await Reservation.findByPk(req.params.id);
 
   if (reservation) {
-    await reservation.deleteOne();
+    await reservation.destroy();
     res.json({ message: 'Reservation removed' });
   } else {
     res.status(404);

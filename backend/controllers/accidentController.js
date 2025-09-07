@@ -1,6 +1,6 @@
 const asyncHandler = require('express-async-handler');
-const Accident = require('../models/Accident');
-const Contract = require('../models/Contract');
+const Accident = require('../models/Accident.model');
+const { Contract, Customer, Vehicle } = require('../models');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -21,15 +21,14 @@ const upload = multer({ storage: storage });
 // @route   GET /api/accidents
 // @access  Private
 const getAccidents = asyncHandler(async (req, res) => {
-  const accidents = await Accident.find({})
-    .populate({
-      path: 'contrat',
-      populate: {
-        path: 'client vehicle',
-      },
-    })
-    .populate('client')
-    .populate('vehicule');
+  const accidents = await Accident.findAll({
+    order: [['createdAt', 'DESC']],
+    include: [
+      { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }, { model: Vehicle, as: 'vehicle' }] },
+      { model: Customer, as: 'client' },
+      { model: Vehicle, as: 'vehicle' },
+    ],
+  });
   res.status(200).json(accidents);
 });
 
@@ -37,22 +36,18 @@ const getAccidents = asyncHandler(async (req, res) => {
 // @route   GET /api/accidents/:id
 // @access  Private
 const getAccidentById = asyncHandler(async (req, res) => {
-  const accident = await Accident.findById(req.params.id)
-    .populate({
-      path: 'contrat',
-      populate: {
-        path: 'client vehicle',
-      },
-    })
-    .populate('client')
-    .populate('vehicule');
-
-  if (accident) {
-    res.json(accident);
-  } else {
+  const accident = await Accident.findByPk(req.params.id, {
+    include: [
+      { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }, { model: Vehicle, as: 'vehicle' }] },
+      { model: Customer, as: 'client' },
+      { model: Vehicle, as: 'vehicle' },
+    ],
+  });
+  if (!accident) {
     res.status(404);
     throw new Error('Accident not found');
   }
+  res.json(accident);
 });
 
 // @desc    Create an accident
@@ -74,22 +69,28 @@ const createAccident = asyncHandler(async (req, res) => {
     avance,
   } = req.body;
 
-  const contrat = await Contract.findById(contratId).populate('client').populate('vehicle');
 
-  if (!contrat) {
-    res.status(404);
-    throw new Error('Contrat not found');
-  }
-
-  if (!contrat.client) {
-    res.status(400);
-    throw new Error('Client associated with this contract could not be found.');
-  }
-
-  if (!contrat.vehicle) {
-    res.status(400);
-    throw new Error(`Vehicle associated with contract ${contrat.contractNumber} could not be found. It might have been deleted or the reference is broken.`);
-  }
+    const contrat = await Contract.findByPk(contratId, {
+      include: [
+        { model: Customer, as: 'client' },
+        { model: Vehicle, as: 'vehicle' },
+      ],
+    });
+    if (!contrat) {
+      res.status(404);
+      throw new Error('Contrat not found');
+    }
+    // use included associations (if present) to avoid extra queries
+    const contratClient = contrat.client || null;
+    const contratVehicle = contrat.vehicle || null;
+    if (!contratClient) {
+      res.status(400);
+      throw new Error('Client associated with this contract could not be found.');
+    }
+    if (!contratVehicle) {
+      res.status(400);
+      throw new Error(`Vehicle associated with contract ${contrat.contractNumber} could not be found.`);
+    }
 
   const documents = req.files ? req.files.map(file => ({
     name: file.originalname,
@@ -98,52 +99,54 @@ const createAccident = asyncHandler(async (req, res) => {
     size: file.size,
   })) : [];
 
-  const accident = new Accident({
-    contrat: contrat._id,
-    numeroContrat: contrat.contractNumber,
-    dateSortie: contrat.departureDate,
-    client: contrat.client._id,
-    clientNom: `${contrat.client.nomFr} ${contrat.client.prenomFr}`,
-    dateRetour: contrat.returnDate,
-    matricule: contrat.matricule,
-    vehicule: contrat.vehicle._id,
-    dateAccident,
-    heureAccident,
-    lieuAccident,
-    description,
-    etat,
-    dateEntreeGarage,
-    dateReparation,
-    montantReparation,
-    fraisClient,
-    indemniteAssurance,
-    avance,
-    documents,
-  });
+    const accident = await Accident.create({
+      contractId: contrat.id,
+      numeroContrat: contrat.contractNumber,
+      dateSortie: contrat.departureDate,
+      clientId: contrat.clientId,
+      clientNom: `${contratClient.nomFr} ${contratClient.prenomFr}`,
+      dateRetour: contrat.returnDate,
+      matricule: contrat.matricule,
+      vehicleId: contrat.vehicleId,
+      dateAccident,
+      heureAccident,
+      lieuAccident,
+      description,
+      etat,
+      dateEntreeGarage,
+      dateReparation,
+      montantReparation,
+      fraisClient,
+      indemniteAssurance,
+      avance,
+      documents,
+    });
 
-  const createdAccident = await accident.save();
-  const populatedAccident = await Accident.findById(createdAccident._id)
-    .populate({
-      path: 'contrat',
-      populate: {
-        path: 'client vehicle',
-      },
-    })
-    .populate('client')
-    .populate('vehicule');
-  res.status(201).json(populatedAccident);
+    const populatedAccident = await Accident.findByPk(accident.id, {
+      include: [
+        { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }, { model: Vehicle, as: 'vehicle' }] },
+        { model: Customer, as: 'client' },
+        { model: Vehicle, as: 'vehicle' },
+      ],
+    });
+    res.status(201).json(populatedAccident);
 });
 
 // @desc    Update an accident
 // @route   PUT /api/accidents/:id
 // @access  Private
 const updateAccident = asyncHandler(async (req, res) => {
-  const accident = await Accident.findById(req.params.id);
 
-  if (accident) {
+    const accident = await Accident.findByPk(req.params.id);
+    if (!accident) {
+      res.status(404);
+      throw new Error('Accident not found');
+    }
+
+    const updatedData = {};
     Object.keys(req.body).forEach(key => {
       if (req.body[key] !== null && req.body[key] !== undefined) {
-        accident[key] = req.body[key];
+        updatedData[key] = req.body[key];
       }
     });
 
@@ -155,7 +158,7 @@ const updateAccident = asyncHandler(async (req, res) => {
         console.error('Error parsing existingDocuments:', e);
       }
     }
-    
+
     const newDocuments = req.files ? req.files.map(file => ({
       name: file.originalname,
       url: file.path,
@@ -163,33 +166,29 @@ const updateAccident = asyncHandler(async (req, res) => {
       size: file.size,
     })) : [];
 
-    accident.documents = [...existingDocuments, ...newDocuments];
+    updatedData.documents = [...existingDocuments, ...newDocuments];
 
-    const updatedAccident = await accident.save();
-    const populatedAccident = await Accident.findById(updatedAccident._id)
-      .populate({
-        path: 'contrat',
-        populate: {
-          path: 'client vehicle',
-        },
-      })
-      .populate('client')
-      .populate('vehicule');
-    res.json(populatedAccident);
-  } else {
-    res.status(404);
-    throw new Error('Accident not found');
-  }
+    await accident.update(updatedData);
+    const updatedAccident = await Accident.findByPk(accident.id, {
+      include: [
+        { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }, { model: Vehicle, as: 'vehicle' }] },
+        { model: Customer, as: 'client' },
+        { model: Vehicle, as: 'vehicle' },
+      ],
+    });
+    res.json(updatedAccident);
 });
 
 // @desc    Delete an accident
 // @route   DELETE /api/accidents/:id
 // @access  Private
 const deleteAccident = asyncHandler(async (req, res) => {
-  const accident = await Accident.findById(req.params.id);
 
-  if (accident) {
-    // Optionally, delete associated files from storage
+    const accident = await Accident.findByPk(req.params.id);
+    if (!accident) {
+      res.status(404);
+      throw new Error('Accident not found');
+    }
     if (accident.documents && accident.documents.length > 0) {
       accident.documents.forEach(doc => {
         if (fs.existsSync(doc.url)) {
@@ -197,12 +196,8 @@ const deleteAccident = asyncHandler(async (req, res) => {
         }
       });
     }
-    await accident.deleteOne();
+    await accident.destroy();
     res.json({ message: 'Accident removed' });
-  } else {
-    res.status(404);
-    throw new Error('Accident not found');
-  }
 });
 
 // @desc    Delete a document from an accident
@@ -210,23 +205,18 @@ const deleteAccident = asyncHandler(async (req, res) => {
 // @access  Private
 const deleteDocument = asyncHandler(async (req, res) => {
   const { documentUrl } = req.body;
-  const accident = await Accident.findById(req.params.id);
 
-  if (accident) {
-    // Remove the document from the array
+    const accident = await Accident.findByPk(req.params.id);
+    if (!accident) {
+      res.status(404);
+      throw new Error('Accident not found');
+    }
     accident.documents = accident.documents.filter(doc => doc.url !== documentUrl);
-    
-    // Delete the file from the filesystem
     if (fs.existsSync(documentUrl)) {
       fs.unlinkSync(documentUrl);
     }
-
-    await accident.save();
+    await accident.update({ documents: accident.documents });
     res.json({ message: 'Document removed' });
-  } else {
-    res.status(404);
-    throw new Error('Accident not found');
-  }
 });
 
 module.exports = {

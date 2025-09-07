@@ -1,8 +1,8 @@
 const asyncHandler = require('express-async-handler');
-const Charge = require('../models/Charge');
+const Charge = require('../models/Charge.model');
 
 const mapChargeToFrontend = (charge) => ({
-  _id: charge._id,
+  id: charge.id,
   motif: charge.name,
   montant: charge.amount,
   observation: charge.description,
@@ -16,18 +16,17 @@ const mapChargeToFrontend = (charge) => ({
 // @route   GET /api/charges
 // @access  Private
 const getCharges = asyncHandler(async (req, res) => {
-  const charges = await Charge.find({});
-  res.status(200).json(charges.map(mapChargeToFrontend));
+  const charges = await Charge.findAll({ order: [['createdAt', 'DESC']] });
+  res.status(200).json(charges.map(c => mapChargeToFrontend(c.toJSON())));
 });
 
 // @desc    Get single charge
 // @route   GET /api/charges/:id
 // @access  Private
 const getChargeById = asyncHandler(async (req, res) => {
-  const charge = await Charge.findById(req.params.id);
-
+  const charge = await Charge.findByPk(req.params.id);
   if (charge) {
-    res.json(mapChargeToFrontend(charge));
+    res.json(mapChargeToFrontend(charge.toJSON()));
   } else {
     res.status(404);
     throw new Error('Charge not found');
@@ -39,18 +38,11 @@ const getChargeById = asyncHandler(async (req, res) => {
 // @access  Private
 const createCharge = asyncHandler(async (req, res) => {
   const { motif, montant, observation, date } = req.body;
-  const attachments = req.files ? req.files.map((file) => file.path) : [];
+  const attachments = req.files ? req.files.map((file) => file.path.replace(/\\/g, '/')) : [];
 
-  const charge = new Charge({
-    name: motif,
-    amount: montant,
-    description: observation,
-    date,
-    attachments,
-  });
-
-  const createdCharge = await charge.save();
-  res.status(201).json(mapChargeToFrontend(createdCharge));
+  const created = await Charge.create({ name: motif, amount: montant, description: observation, date, attachments });
+  const populated = await Charge.findByPk(created.id);
+  res.status(201).json(mapChargeToFrontend(populated.toJSON()));
 });
 
 // @desc    Update a charge
@@ -59,37 +51,35 @@ const createCharge = asyncHandler(async (req, res) => {
 const updateCharge = asyncHandler(async (req, res) => {
   const { motif, montant, observation, date, existingDocuments } = req.body;
 
-  const charge = await Charge.findById(req.params.id);
-
-  if (charge) {
-    charge.name = motif || charge.name;
-    charge.amount = montant || charge.amount;
-    charge.description = observation || charge.description;
-    charge.date = date || charge.date;
-
-    const newAttachments = req.files ? req.files.map((file) => file.path) : [];
-    const updatedAttachments = existingDocuments
-      ? JSON.parse(existingDocuments).map((doc) => doc.url)
-      : [];
-
-    charge.attachments = [...updatedAttachments, ...newAttachments];
-
-    const updatedCharge = await charge.save();
-    res.json(mapChargeToFrontend(updatedCharge));
-  } else {
+  const charge = await Charge.findByPk(req.params.id);
+  if (!charge) {
     res.status(404);
     throw new Error('Charge not found');
   }
+
+  const updatedData = {};
+  if (motif !== undefined) updatedData.name = motif;
+  if (montant !== undefined) updatedData.amount = montant;
+  if (observation !== undefined) updatedData.description = observation;
+  if (date !== undefined) updatedData.date = date;
+
+  const newAttachments = req.files ? req.files.map((file) => file.path.replace(/\\/g, '/')) : [];
+  const updatedAttachments = existingDocuments ? JSON.parse(existingDocuments).map((doc) => doc.url) : [];
+  updatedData.attachments = [...updatedAttachments, ...newAttachments];
+
+  await charge.update(updatedData);
+  const updatedCharge = await Charge.findByPk(req.params.id);
+  res.json(mapChargeToFrontend(updatedCharge.toJSON()));
 });
 
 // @desc    Delete a charge
 // @route   DELETE /api/charges/:id
 // @access  Private
 const deleteCharge = asyncHandler(async (req, res) => {
-  const charge = await Charge.findById(req.params.id);
+  const charge = await Charge.findByPk(req.params.id);
 
   if (charge) {
-    await charge.deleteOne();
+    await charge.destroy();
     res.json({ message: 'Charge removed' });
   } else {
     res.status(404);

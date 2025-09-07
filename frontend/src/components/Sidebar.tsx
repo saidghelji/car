@@ -61,22 +61,22 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
       {/* Overlay for mobile */}
       {isOpen && (
         <div 
-          className="fixed inset-0 z-20 bg-black bg-opacity-50 lg:hidden"
+          className="fixed inset-0 z-20 bg-blue-600 bg-opacity-50 lg:hidden"
           onClick={() => setIsOpen(false)}
         />
       )}
 
       {/* Sidebar */}
       <div 
-        className={`fixed inset-y-0 left-0 z-30 w-64 transform bg-black transition duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 lg:flex lg:flex-col ${
+        className={`fixed inset-y-0 left-0 z-30 w-64 transform bg-blue-600 transition duration-300 ease-in-out lg:translate-x-0 lg:static lg:inset-0 lg:flex lg:flex-col ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        <div className="flex items-center justify-center h-16 border-b border-gray-800">
-          <img src="/media/photo_2025-08-22_23-06-42.jpg" alt="AdminCar Logo" className="h-12" />
+        <div className="flex items-center justify-center h-24 border-b border-blue-700">
+          <img src="/media/ChatGPT Image Sep 4, 2025, 06_32_30 PM.png" alt="AdminCar Logo" className="h-20" />
         </div>
 
-        <div className="flex flex-col justify-between h-[calc(100%-4rem)]">
+        <div className="flex flex-col justify-between h-[calc(100%-6rem)]">
           <nav className="mt-5 px-2 overflow-y-auto">
             {navItems.map((item) => (
               <div key={item.path} className="mb-1">
@@ -88,9 +88,9 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
                         to={item.path}
                         className={({ isActive }) => 
                           `flex flex-grow items-center px-4 py-3 text-sm rounded-l-lg transition-colors ${
-                            isActive 
-                              ? 'bg-gray-800 text-white' 
-                              : 'text-gray-100 hover:bg-gray-800 hover:text-white'
+                            isActive
+                              ? 'bg-blue-700 text-white'
+                              : 'text-gray-100 hover:bg-blue-700 hover:text-white'
                           }`
                         }
                         onClick={() => setIsOpen(false)}
@@ -98,9 +98,9 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
                         <span className="mr-3">{item.icon}</span>
                         {item.name}
                       </NavLink>
-                      <button 
+                      <button
                         className={`p-2 text-gray-100 hover:text-white focus:outline-none rounded-r-lg transition-colors ${
-                          expandedItems[item.path] ? 'bg-gray-800 text-white' : 'hover:bg-gray-800'
+                          expandedItems[item.path] ? 'bg-blue-700 text-white' : 'hover:bg-blue-700'
                         }`}
                         onClick={() => toggleExpand(item.path)}
                       >
@@ -111,7 +111,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
                         )}
                       </button>
                     </div>
-                    
+
                     {/* Sub-items */}
                     <div className={`transition-all duration-300 overflow-hidden ${
                       expandedItems[item.path] ? 'max-h-40' : 'max-h-0'
@@ -120,11 +120,11 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
                         <NavLink
                           key={subItem.path}
                           to={subItem.path}
-                          className={({ isActive }) => 
+                          className={({ isActive }) =>
                             `flex items-center px-4 py-2 ml-6 mt-1 text-sm rounded-lg transition-colors ${
-                              isActive 
-                                ? 'bg-gray-800 text-white' 
-                                : 'text-gray-100 hover:bg-gray-800 hover:text-white'
+                              isActive
+                                ? 'bg-blue-700 text-white'
+                                : 'text-gray-100 hover:bg-blue-700 hover:text-white'
                             }`
                           }
                           onClick={() => setIsOpen(false)}
@@ -139,11 +139,11 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
                   // Regular item without dropdown
                   <NavLink
                     to={item.path}
-                    className={({ isActive }) => 
+                    className={({ isActive }) =>
                       `flex items-center px-4 py-3 text-sm rounded-lg transition-colors ${
-                        isActive 
-                          ? 'bg-gray-800 text-white' 
-                          : 'text-gray-100 hover:bg-gray-800 hover:text-white'
+                        isActive
+                          ? 'bg-blue-700 text-white'
+                          : 'text-gray-100 hover:bg-blue-700 hover:text-white'
                       }`
                     }
                     onClick={() => setIsOpen(false)}
@@ -159,7 +159,7 @@ const Sidebar = ({ isOpen, setIsOpen }: SidebarProps) => {
           <div className="p-4">
             <button
               onClick={logout}
-              className="flex items-center w-full px-4 py-2 text-sm text-gray-100 rounded-lg hover:bg-gray-800 hover:text-white"
+              className="flex items-center w-full px-4 py-2 text-sm text-gray-100 rounded-lg hover:bg-blue-700 hover:text-white"
             >
               <LogOut size={20} className="mr-3" />
               Déconnexion

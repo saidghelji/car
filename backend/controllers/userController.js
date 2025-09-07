@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const User = require('../models/User.model');
 const jwt = require('jsonwebtoken');
 const asyncHandler = require('express-async-handler');
 
@@ -21,7 +21,7 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // Check if user exists
-  const userExists = await User.findOne({ username });
+  const userExists = await User.findOne({ where: { username } });
 
   if (userExists) {
     res.status(400);
@@ -29,18 +29,14 @@ const registerUser = asyncHandler(async (req, res) => {
   }
 
   // Create user
-  const user = await User.create({
-    username,
-    password,
-    role,
-  });
+  const user = await User.create({ username, password, role });
 
   if (user) {
     res.status(201).json({
-      _id: user._id,
-      username: user.username,
-      role: user.role,
-      token: generateToken(user._id),
+      id: user.id,
+        username: user.username,
+        role: user.role,
+        token: generateToken(user.id),
     });
   } else {
     res.status(400);
@@ -55,7 +51,7 @@ const registerUser = asyncHandler(async (req, res) => {
   const { username, password } = req.body;
 
   // Check for user username
-  const user = await User.findOne({ username });
+  const user = await User.findOne({ where: { username } });
 
   console.log('Attempting login for user:', username);
   console.log('User found:', !!user);
@@ -63,10 +59,10 @@ const registerUser = asyncHandler(async (req, res) => {
   if (user && (await user.matchPassword(password))) {
     console.log('Password matched for user:', username);
     res.json({
-      _id: user._id,
-      username: user.username,
-      role: user.role,
-      token: generateToken(user._id),
+  id: user.id,
+  username: user.username,
+  role: user.role,
+  token: generateToken(user.id),
     });
   } else {
     console.log('Password did NOT match or user not found for:', username);
@@ -82,11 +78,11 @@ const changePassword = asyncHandler(async (req, res) => {
   const { oldPassword, newPassword } = req.body;
 
   // Get user from JWT (assuming auth middleware adds user to req)
-  const user = await User.findById(req.user._id);
+  const user = await User.findByPk(req.user.id);
 
   if (user && (await user.matchPassword(oldPassword))) {
-    user.password = newPassword;
-    await user.save();
+  user.password = newPassword;
+  await user.save();
     res.json({ message: 'Password changed successfully' });
   } else {
     res.status(401);
@@ -94,8 +90,45 @@ const changePassword = asyncHandler(async (req, res) => {
   }
 });
 
+// @desc    Update user username
+// @route   PUT /api/users/update-username
+// @access  Private (requires authentication)
+const updateUsername = asyncHandler(async (req, res) => {
+  const { username } = req.body;
+
+  // Get user from JWT (assuming auth middleware adds user to req)
+  const user = await User.findByPk(req.user.id);
+
+  if (!user) {
+    res.status(404);
+    throw new Error('User not found');
+  }
+
+  if (!username) {
+    res.status(400);
+    throw new Error('Please provide a new username');
+  }
+
+  // Check if new username already exists
+  const usernameExists = await User.findOne({ username });
+  if (usernameExists && usernameExists.id !== user.id) {
+    res.status(400);
+    throw new Error('Username already taken');
+  }
+
+  user.username = username;
+  await user.save();
+
+  res.json({
+    id: user.id,
+    username: user.username,
+    role: user.role,
+  });
+});
+
 module.exports = {
   registerUser,
   loginUser,
   changePassword,
+  updateUsername,
 };

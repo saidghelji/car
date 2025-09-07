@@ -1,5 +1,7 @@
 const asyncHandler = require('express-async-handler');
-const VehicleInsurance = require('../models/VehicleInsurance');
+const VehicleInsurance = require('../models/VehicleInsurance.model');
+const Vehicle = require('../models/Vehicle.model');
+const Customer = require('../models/Customer.model');
 const fs = require('fs');
 const path = require('path');
 
@@ -7,7 +9,7 @@ const path = require('path');
 // @route   GET /api/vehicleinsurances
 // @access  Private
 const getVehicleInsurances = asyncHandler(async (req, res) => {
-  const vehicleInsurances = await VehicleInsurance.find({}).populate('vehicle').populate('customer');
+  const vehicleInsurances = await VehicleInsurance.findAll({ include: [{ model: Vehicle, as: 'vehicle' }, { model: Customer, as: 'customer' }] });
   res.status(200).json(vehicleInsurances);
 });
 
@@ -15,7 +17,7 @@ const getVehicleInsurances = asyncHandler(async (req, res) => {
 // @route   GET /api/vehicleinsurances/:id
 // @access  Private
 const getVehicleInsuranceById = asyncHandler(async (req, res) => {
-  const vehicleInsurance = await VehicleInsurance.findById(req.params.id).populate('vehicle').populate('customer');
+  const vehicleInsurance = await VehicleInsurance.findByPk(req.params.id, { include: [{ model: Vehicle, as: 'vehicle' }, { model: Customer, as: 'customer' }] });
 
   if (vehicleInsurance) {
     res.json(vehicleInsurance);
@@ -31,25 +33,11 @@ const getVehicleInsuranceById = asyncHandler(async (req, res) => {
 const createVehicleInsurance = asyncHandler(async (req, res) => {
   const { vehicle, customer, company, policyNumber, operationDate, startDate, duration, endDate, price, contactInfo, observation } = req.body;
 
-  const attachments = req.files && req.files.length > 0 ? req.files.map(file => file.path) : [];
+  const attachments = req.files && req.files.length > 0 ? req.files.map(file => file.path.replace(/\\/g, '/')) : [];
 
-  const vehicleInsurance = new VehicleInsurance({
-    vehicle,
-    customer,
-    company,
-    policyNumber,
-    operationDate,
-    startDate,
-    duration,
-    endDate,
-    price,
-    contactInfo,
-    observation,
-    attachments,
-  });
-
-  const createdVehicleInsurance = await vehicleInsurance.save();
-  res.status(201).json(createdVehicleInsurance);
+  const created = await VehicleInsurance.create({ vehicleId: vehicle, customerId: customer, company, policyNumber, operationDate, startDate, duration, endDate, price, contactInfo, observation, attachments });
+  const populated = await VehicleInsurance.findByPk(created.id, { include: [{ model: Vehicle, as: 'vehicle' }, { model: Customer, as: 'customer' }] });
+  res.status(201).json(populated);
 });
 
 // @desc    Update a vehicle insurance
@@ -58,30 +46,30 @@ const createVehicleInsurance = asyncHandler(async (req, res) => {
 const updateVehicleInsurance = asyncHandler(async (req, res) => {
   const { vehicle, customer, company, policyNumber, operationDate, startDate, duration, endDate, price, contactInfo, observation } = req.body;
 
-  const vehicleInsurance = await VehicleInsurance.findById(req.params.id);
+  const vehicleInsurance = await VehicleInsurance.findByPk(req.params.id);
 
   if (vehicleInsurance) {
-    // Update non-file fields
-    if (vehicle) vehicleInsurance.vehicle = vehicle;
-    if (customer) vehicleInsurance.customer = customer;
-    if (company) vehicleInsurance.company = company;
-    if (policyNumber) vehicleInsurance.policyNumber = policyNumber;
-    if (operationDate) vehicleInsurance.operationDate = operationDate;
-    if (startDate) vehicleInsurance.startDate = startDate;
-    if (duration) vehicleInsurance.duration = duration;
-    if (endDate) vehicleInsurance.endDate = endDate;
-    if (price) vehicleInsurance.price = price;
-    if (contactInfo) vehicleInsurance.contactInfo = contactInfo;
-    if (observation) vehicleInsurance.observation = observation;
+    const updates = {};
+    if (vehicle !== undefined) updates.vehicleId = vehicle;
+    if (customer !== undefined) updates.customerId = customer;
+    if (company !== undefined) updates.company = company;
+    if (policyNumber !== undefined) updates.policyNumber = policyNumber;
+    if (operationDate !== undefined) updates.operationDate = operationDate;
+    if (startDate !== undefined) updates.startDate = startDate;
+    if (duration !== undefined) updates.duration = duration;
+    if (endDate !== undefined) updates.endDate = endDate;
+    if (price !== undefined) updates.price = price;
+    if (contactInfo !== undefined) updates.contactInfo = contactInfo;
+    if (observation !== undefined) updates.observation = observation;
 
-    // Handle attachments update (add new ones)
     if (req.files && req.files.length > 0) {
-      const newAttachmentPaths = req.files.map(file => file.path);
-      vehicleInsurance.attachments = [...vehicleInsurance.attachments, ...newAttachmentPaths];
+      const newAttachmentPaths = req.files.map(file => file.path.replace(/\\/g, '/'));
+      updates.attachments = [...(vehicleInsurance.attachments || []), ...newAttachmentPaths];
     }
 
-    const updatedVehicleInsurance = await vehicleInsurance.save();
-    res.json(updatedVehicleInsurance);
+    await vehicleInsurance.update(updates);
+    const populated = await VehicleInsurance.findByPk(vehicleInsurance.id, { include: [{ model: Vehicle, as: 'vehicle' }, { model: Customer, as: 'customer' }] });
+    res.json(populated);
   } else {
     res.status(404);
     throw new Error('Vehicle insurance not found');
@@ -92,10 +80,9 @@ const updateVehicleInsurance = asyncHandler(async (req, res) => {
 // @route   DELETE /api/vehicleinsurances/:id
 // @access  Private
 const deleteVehicleInsurance = asyncHandler(async (req, res) => {
-  const vehicleInsurance = await VehicleInsurance.findById(req.params.id);
-
+  const vehicleInsurance = await VehicleInsurance.findByPk(req.params.id);
   if (vehicleInsurance) {
-    await vehicleInsurance.deleteOne();
+    await vehicleInsurance.destroy();
     res.json({ message: 'Vehicle insurance removed' });
   } else {
     res.status(404);
@@ -108,35 +95,28 @@ const deleteVehicleInsurance = asyncHandler(async (req, res) => {
 // @access  Private
 const deleteInsuranceDocument = asyncHandler(async (req, res) => {
   const { documentName } = req.body; // Expect documentName from frontend
-  const vehicleInsurance = await VehicleInsurance.findById(req.params.id);
-
+  const vehicleInsurance = await VehicleInsurance.findByPk(req.params.id);
   if (vehicleInsurance) {
     let documentRemoved = false;
     let filePathToDelete = '';
-
-    // Check if it's an attachment
-    const attachmentIndex = vehicleInsurance.attachments.findIndex(att => att.includes(documentName));
+    const attachmentIndex = (vehicleInsurance.attachments || []).findIndex(att => att.includes(documentName));
     if (attachmentIndex > -1) {
       filePathToDelete = vehicleInsurance.attachments[attachmentIndex];
-      vehicleInsurance.attachments.splice(attachmentIndex, 1);
+      const newAttachments = [...vehicleInsurance.attachments];
+      newAttachments.splice(attachmentIndex, 1);
+      await vehicleInsurance.update({ attachments: newAttachments });
       documentRemoved = true;
     }
 
     if (documentRemoved) {
-      await vehicleInsurance.save();
-
-      // Delete the physical file
       if (filePathToDelete) {
         const fullPath = path.join(__dirname, '..', filePathToDelete);
         fs.unlink(fullPath, (err) => {
-          if (err) {
-            console.error(`Error deleting file ${fullPath}:`, err);
-            // Log the error but don't prevent success response if DB update was successful
-          }
+          if (err) console.error(`Error deleting file ${fullPath}:`, err);
         });
       }
-
-      res.json({ message: 'Document removed successfully', vehicleInsurance });
+      const populated = await VehicleInsurance.findByPk(vehicleInsurance.id, { include: [{ model: Vehicle, as: 'vehicle' }, { model: Customer, as: 'customer' }] });
+      res.json({ message: 'Document removed successfully', vehicleInsurance: populated });
     } else {
       res.status(404);
       throw new Error('Document not found in this insurance record');

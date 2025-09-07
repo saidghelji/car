@@ -7,6 +7,8 @@ import { Vehicle } from './Vehicles'; // Import Vehicle type
 import axios from 'axios'; // Import axios
 import toast from 'react-hot-toast'; // For notifications
 import { Line } from 'react-chartjs-2';
+import DatePicker from 'react-datepicker';
+import 'react-datepicker/dist/react-datepicker.css';
 import {
   Chart as ChartJS,
   CategoryScale,
@@ -66,6 +68,10 @@ const Dashboard = () => {
   const [vehiclesExpiringCarteGrise, setVehiclesExpiringCarteGrise] = useState<Vehicle[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const [startDate, setStartDate] = useState<Date | null>(null);
+  const [endDate, setEndDate] = useState<Date | null>(null);
+  const [selectedYear, setSelectedYear] = useState<number>(new Date().getFullYear());
 
   const API_URL_CUSTOMERS = 'http://localhost:5000/api/customers';
   const API_URL_RESERVATIONS = 'http://localhost:5000/api/reservations';
@@ -227,33 +233,44 @@ const Dashboard = () => {
 
   // Calculation functions for monthly data
   const calculateMonthlyRecettes = useCallback(() => {
-    const currentYear = new Date().getFullYear();
     const monthlyTotals = Array(12).fill(0); // 0-indexed for months
 
     reservations.forEach(res => {
       const reservationDate = new Date(res.reservationDate);
-      if (reservationDate.getFullYear() === currentYear && res.status === 'validee') {
+      if (
+        reservationDate.getFullYear() === selectedYear &&
+        res.status === 'validee' &&
+        (!startDate || reservationDate >= startDate) &&
+        (!endDate || reservationDate <= endDate)
+      ) {
         monthlyTotals[reservationDate.getMonth()] += res.totalAmount;
       }
     });
 
     factures.forEach(fact => {
       const invoiceDate = new Date(fact.invoiceDate);
-      if (invoiceDate.getFullYear() === currentYear) {
+      if (
+        invoiceDate.getFullYear() === selectedYear &&
+        (!startDate || invoiceDate >= startDate) &&
+        (!endDate || invoiceDate <= endDate)
+      ) {
         monthlyTotals[invoiceDate.getMonth()] += fact.totalTTC;
       }
     });
 
     return monthlyTotals;
-  }, [reservations, factures]);
+  }, [reservations, factures, startDate, endDate, selectedYear]);
 
   const calculateMonthlyDepenses = useCallback(() => {
-    const currentYear = new Date().getFullYear();
     const monthlyTotals = Array(12).fill(0); // 0-indexed for months
 
     traites.forEach(traite => {
       const traiteDate = new Date(traite.datePaiement || traite.createdAt);
-      if (traiteDate.getFullYear() === currentYear) {
+      if (
+        traiteDate.getFullYear() === selectedYear &&
+        (!startDate || traiteDate >= startDate) &&
+        (!endDate || traiteDate <= endDate)
+      ) {
         monthlyTotals[traiteDate.getMonth()] += traite.montant;
       }
     });
@@ -261,34 +278,51 @@ const Dashboard = () => {
     charges.forEach(charge => {
       const chargeDate = new Date(charge.date || charge.createdAt);
       const chargeAmount = Number(charge.montant); // Corrected to use charge.montant
-      if (chargeDate.getFullYear() === currentYear && !isNaN(chargeAmount)) {
+      if (
+        chargeDate.getFullYear() === selectedYear &&
+        !isNaN(chargeAmount) &&
+        (!startDate || chargeDate >= startDate) &&
+        (!endDate || chargeDate <= endDate)
+      ) {
         monthlyTotals[chargeDate.getMonth()] += chargeAmount;
       }
     });
 
     interventions.forEach(intervention => {
       const interventionDate = new Date(intervention.date);
-      if (interventionDate.getFullYear() === currentYear) {
+      if (
+        interventionDate.getFullYear() === selectedYear &&
+        (!startDate || interventionDate >= startDate) &&
+        (!endDate || interventionDate <= endDate)
+      ) {
         monthlyTotals[interventionDate.getMonth()] += intervention.cost;
       }
     });
 
     vehicleInspections.forEach(inspection => {
       const inspectionDate = new Date(inspection.inspectionDate);
-      if (inspectionDate.getFullYear() === currentYear) {
+      if (
+        inspectionDate.getFullYear() === selectedYear &&
+        (!startDate || inspectionDate >= startDate) &&
+        (!endDate || inspectionDate <= endDate)
+      ) {
         monthlyTotals[inspectionDate.getMonth()] += inspection.price;
       }
     });
 
     vehicleInsurances.forEach(insurance => {
       const insuranceDate = new Date(insurance.operationDate);
-      if (insuranceDate.getFullYear() === currentYear) {
+      if (
+        insuranceDate.getFullYear() === selectedYear &&
+        (!startDate || insuranceDate >= startDate) &&
+        (!endDate || insuranceDate <= endDate)
+      ) {
         monthlyTotals[insuranceDate.getMonth()] += insurance.price;
       }
     });
 
     return monthlyTotals;
-  }, [traites, charges, interventions, vehicleInspections, vehicleInsurances]);
+  }, [traites, charges, interventions, vehicleInspections, vehicleInsurances, startDate, endDate, selectedYear]);
 
   const monthlyRecettes = calculateMonthlyRecettes();
   const monthlyDepenses = calculateMonthlyDepenses();
@@ -361,11 +395,38 @@ const Dashboard = () => {
       },
       title: {
         display: true,
-        text: 'Recettes et Dépenses Mensuelles',
+        text: `Recettes et Dépenses Mensuelles (${selectedYear})`,
       },
     },
   };
 
+  // Maintenance thresholds
+  const MAINTENANCE_INTERVAL = 10000; // every 10,000 km
+  const ALERT_DISTANCE = 200; // alert when within 200 km
+
+  // Compute vehicles approaching maintenance (within ALERT_DISTANCE of next MAINTENANCE_INTERVAL)
+  const vehiclesApproachingMaintenance: { vehicle: Vehicle; nextThreshold: number; distance: number }[] = [];
+
+  vehicles.forEach(vehicle => {
+    const mileage = Number(vehicle.mileage) || 0;
+
+    // Calculate next threshold: smallest multiple of MAINTENANCE_INTERVAL strictly greater than current mileage
+    const nextThreshold = Math.ceil((mileage + 1) / MAINTENANCE_INTERVAL) * MAINTENANCE_INTERVAL;
+    const distance = nextThreshold - mileage;
+
+    if (distance > 0 && distance <= ALERT_DISTANCE) {
+      // Check if there's already an intervention (adjustment) created for this vehicle that covers this next threshold
+      const hasAdjustment = interventions.some(intervention => {
+        const ivVehicleId = (intervention.vehicle && typeof intervention.vehicle === 'object') ? intervention.vehicle._id : intervention.vehicle;
+        const nextMileageVal = intervention.nextMileage !== undefined && intervention.nextMileage !== null ? Number(intervention.nextMileage) : null;
+        return ivVehicleId === vehicle._id && nextMileageVal !== null && nextMileageVal >= nextThreshold;
+      });
+
+      if (!hasAdjustment) {
+        vehiclesApproachingMaintenance.push({ vehicle, nextThreshold, distance });
+      }
+    }
+  });
 
   const alerts = [];
 
@@ -409,6 +470,19 @@ const Dashboard = () => {
     });
   }
 
+  if (vehiclesApproachingMaintenance.length > 0) {
+    // Create a separate alert for each vehicle approaching maintenance so errors are separated
+    vehiclesApproachingMaintenance.forEach(({ vehicle, nextThreshold, distance }) => {
+      alerts.push({
+        title: `Intervention requise — ${vehicle.licensePlate}`,
+        description: `Le véhicule ${vehicle.licensePlate} approche ${nextThreshold.toLocaleString('fr-FR')} km (dans ${distance} km).`,
+        action: "Aller aux Interventions",
+        type: "warning",
+        onClick: () => navigate(`/interventions?vehicle=${vehicle._id}`),
+      });
+    });
+  }
+
   // Note: removed static placeholder alerts for Maintenance and Pending Payments
 
   if (loading) {
@@ -445,6 +519,52 @@ const Dashboard = () => {
         {/* Monthly Revenue and Expenses Chart */}
         <div className="bg-white rounded-lg shadow col-span-2 p-4">
           <h2 className="text-lg font-medium mb-4">Recettes et Dépenses Mensuelles</h2>
+          <div className="flex flex-wrap items-end gap-4 mb-4">
+            <div>
+              <label htmlFor="yearPicker" className="block text-sm font-medium text-gray-700">Année</label>
+              <DatePicker
+                id="yearPicker"
+                selected={new Date(selectedYear, 0, 1)}
+                onChange={(date: Date | null) => setSelectedYear(date ? date.getFullYear() : new Date().getFullYear())}
+                showYearPicker
+                dateFormat="yyyy"
+                className="mt-1 block w-full rounded-md border border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 hover:border-blue-500 hover:ring-blue-500 sm:text-sm p-2"
+              />
+            </div>
+            <div>
+              <label htmlFor="startDate" className="block text-sm font-medium text-gray-700">Date de début</label>
+              <DatePicker
+                id="startDate"
+                selected={startDate}
+                onChange={(date: Date | null) => setStartDate(date)}
+                selectsStart
+                startDate={startDate}
+                endDate={endDate}
+                dateFormat="dd/MM/yyyy"
+                className="mt-1 block w-full rounded-md border border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 hover:border-blue-500 hover:ring-blue-500 sm:text-sm p-2"
+              />
+            </div>
+            <div>
+              <label htmlFor="endDate" className="block text-sm font-medium text-gray-700">Date de fin</label>
+              <DatePicker
+                id="endDate"
+                selected={endDate}
+                onChange={(date: Date | null) => setEndDate(date)}
+                selectsEnd
+                startDate={startDate}
+                endDate={endDate}
+                minDate={startDate || undefined}
+                dateFormat="dd/MM/yyyy"
+                className="mt-1 block w-full rounded-md border border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 hover:border-blue-500 hover:ring-blue-500 sm:text-sm p-2"
+              />
+            </div>
+            <button
+              onClick={() => { setStartDate(null); setEndDate(null); setSelectedYear(new Date().getFullYear()); }}
+              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+            >
+              Réinitialiser
+            </button>
+          </div>
           <Line data={chartData} options={chartOptions} />
         </div>
 

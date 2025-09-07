@@ -20,14 +20,30 @@ const userRoutes = require('./routes/userRoutes'); // Import user routes
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Connect to MongoDB
+// Connect to DB (now Sequelize/Postgres)
+const { sequelize } = require('./config/sequelize');
 connectDB();
+
+// Sync models with the database (non-destructive by default)
+// Sync models with the database only when explicitly enabled via environment
+// Prefer migrations in production. Set DB_SYNC=true to enable sequelize.sync() (development convenience).
+if (process.env.DB_SYNC === 'true') {
+  sequelize.sync().then(() => {
+    console.log('Sequelize models synchronized (sync enabled)');
+  }).catch(err => {
+    console.error('Sequelize sync error:', err);
+  });
+} else {
+  console.log('DB sync skipped (set DB_SYNC=true to run sequelize.sync on startup)');
+}
 
 // Middleware
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+// Serve uploads folder
+app.use('/uploads', express.static('uploads'));
 
 // Define Routes
 app.use('/api/customers', customerRoutes);
@@ -50,4 +66,6 @@ app.get('/', (req, res) => {
   res.send('API is running...');
 });
 
-module.exports = app;
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});

@@ -1,5 +1,5 @@
 // Removed unused React import as it is not necessary with the new JSX transform.
-import { Bell, Menu, UserCircle } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
@@ -14,16 +14,27 @@ const Header = ({ onMenuClick }: HeaderProps) => {
   // Page title based on current route
   const getPageTitle = () => {
     const path = location.pathname;
-    
-    if (path === '/') return 'Tableau de bord';
-    if (path === '/vehicules') return 'Gestion des Véhicules';
-    if (path === '/clients') return 'Gestion des Clients';
-    if (path === '/contrats') return 'Gestion des Contrats';
-    if (path === '/factures') return 'Gestion des Factures';
-    if (path === '/reservations') return 'Gestion des Réservations';
-    if (path === '/parametres') return 'Paramètres';
-    
-    return 'AdminCar';
+
+    const pageTitles: { [key: string]: string } = {
+      '/': 'Tableau de bord',
+      '/vehicules': 'Gestion des Véhicules',
+      '/clients': 'Gestion des Clients',
+      '/contrats': 'Gestion des Contrats',
+      '/factures': 'Gestion des Factures',
+      '/reservations': 'Gestion des Réservations',
+      '/parametres': 'Paramètres',
+      '/accidents': 'Gestion des Accidents',
+      '/charges': 'Gestion des Charges',
+      '/clientpayments': 'Gestion des Paiements Clients',
+      '/infractions': 'Gestion des Infractions',
+      '/interventions': 'Gestion des Interventions',
+      '/login': 'Connexion',
+      '/traites': 'Gestion des Traites',
+      '/vehicleinspections': 'Gestion des Inspections Véhicules',
+      '/vehicleinsurance': 'Gestion des Assurances Véhicules',
+    };
+
+    return pageTitles[path] || 'AdminCar';
   };
 
   return (
@@ -43,17 +54,10 @@ const Header = ({ onMenuClick }: HeaderProps) => {
 
       {/* Right side */}
       <div className="flex items-center space-x-4">
-        <button className="relative p-2 rounded-full text-gray-600 hover:bg-gray-100">
-          <Bell size={20} />
-          <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full"></span>
-        </button>
-        
-        <div className="hidden md:flex items-center space-x-2">
-          <span className="text-sm font-medium text-gray-700">
-            {user?.name}
-          </span>
-          <UserCircle size={28} className="text-gray-600" />
-        </div>
+        {/* Show logged-in username if available */}
+        {user && (
+          <div className="text-sm text-gray-700">{user.username}</div>
+        )}
       </div>
     </header>
   );

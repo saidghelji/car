@@ -1,27 +1,24 @@
 const asyncHandler = require('express-async-handler');
-const ClientPayment = require('../models/ClientPayment');
+const ClientPayment = require('../models/ClientPayment.model');
+const { Customer, Contract, Facture, Accident } = require('../models');
 const fs = require('fs');
 const path = require('path');
+
+// We'll use Sequelize includes now that associations are wired in models/index.js
 
 // @desc    Get all client payments
 // @route   GET /api/clientpayments
 // @access  Private
 const getClientPayments = asyncHandler(async (req, res) => {
-  const clientPayments = await ClientPayment.find({})
-    .populate('client')
-    .populate({
-      path: 'contract',
-      populate: {
-        path: 'client'
-      }
-    })
-    .populate({
-      path: 'facture',
-      populate: {
-        path: 'client'
-      }
-    })
-    .populate('accident');
+  const clientPayments = await ClientPayment.findAll({
+    order: [['createdAt', 'DESC']],
+    include: [
+      { model: Customer, as: 'client' },
+      { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }] },
+      { model: Facture, as: 'facture', include: [{ model: Customer, as: 'client' }] },
+      { model: Accident, as: 'accident' },
+    ],
+  });
   res.status(200).json(clientPayments);
 });
 
@@ -29,14 +26,15 @@ const getClientPayments = asyncHandler(async (req, res) => {
 // @route   GET /api/clientpayments/:id
 // @access  Private
 const getClientPaymentById = asyncHandler(async (req, res) => {
-  const clientPayment = await ClientPayment.findById(req.params.id).populate('client');
-
-  if (clientPayment) {
-    res.json(clientPayment);
-  } else {
-    res.status(404);
-    throw new Error('Client payment not found');
-  }
+  const clientPayment = await ClientPayment.findByPk(req.params.id, {
+    include: [
+      { model: Customer, as: 'client' },
+      { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }] },
+      { model: Facture, as: 'facture', include: [{ model: Customer, as: 'client' }] },
+      { model: Accident, as: 'accident' },
+    ],
+  });
+  if (clientPayment) res.json(clientPayment); else { res.status(404); throw new Error('Client payment not found'); }
 });
 
 // @desc    Create a client payment
@@ -47,10 +45,10 @@ const createClientPayment = asyncHandler(async (req, res) => {
     paymentDate,
     paymentFor,
     referenceNumber,
-    client,
-    contract,
-    facture,
-    accident,
+    clientId,
+    contractId,
+    factureId,
+    accidentId,
     remainingAmount,
     paymentType,
     amountPaid,
@@ -58,7 +56,7 @@ const createClientPayment = asyncHandler(async (req, res) => {
 
   // Generate unique paymentNumber
   const currentYear = new Date().getFullYear();
-  const latestPayment = await ClientPayment.findOne({}, {}, { sort: { 'createdAt': -1 } });
+  const latestPayment = await ClientPayment.findOne({ order: [['createdAt', 'DESC']] });
   let nextSequenceNumber = 1;
 
   if (latestPayment && latestPayment.paymentNumber) {
@@ -67,6 +65,7 @@ const createClientPayment = asyncHandler(async (req, res) => {
       nextSequenceNumber = parseInt(parts[2]) + 1;
     }
   }
+
   const paymentNumber = `REG-${currentYear}-${String(nextSequenceNumber).padStart(3, '0')}`;
 
   const newDocuments = req.files ? req.files.map(file => ({
@@ -76,37 +75,37 @@ const createClientPayment = asyncHandler(async (req, res) => {
     url: file.path.replace(/\\/g, '/'),
   })) : [];
 
-  const clientPayment = new ClientPayment({
-    paymentNumber, // Use the generated payment number
+  const payload = {
+    paymentNumber,
     paymentDate,
     paymentFor,
     referenceNumber,
-    client,
-    contract,
-    facture,
-    accident,
+    clientId,
+    contractId,
+    factureId,
+    accidentId,
     remainingAmount,
     paymentType,
     amountPaid,
     documents: newDocuments,
+  };
+  console.log('ClientPayment.create payload:', payload);
+  let clientPayment;
+  try {
+    clientPayment = await ClientPayment.create(payload);
+  } catch (err) {
+    console.error('ClientPayment.create error:', err);
+    const dbErr = err.parent || err.original || err;
+    return res.status(500).json({ message: err.message, dbError: dbErr, payload });
+  }
+  const populatedPayment = await ClientPayment.findByPk(clientPayment.id, {
+    include: [
+      { model: Customer, as: 'client' },
+      { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }] },
+      { model: Facture, as: 'facture', include: [{ model: Customer, as: 'client' }] },
+      { model: Accident, as: 'accident' },
+    ],
   });
-
-  const createdClientPayment = await clientPayment.save();
-  const populatedPayment = await ClientPayment.findById(createdClientPayment._id)
-    .populate('client')
-    .populate({
-      path: 'contract',
-      populate: {
-        path: 'client'
-      }
-    })
-    .populate({
-      path: 'facture',
-      populate: {
-        path: 'client'
-      }
-    })
-    .populate('accident');
   res.status(201).json(populatedPayment);
 });
 
@@ -119,30 +118,31 @@ const updateClientPayment = asyncHandler(async (req, res) => {
     paymentDate,
     paymentFor,
     referenceNumber,
-    client,
-    contract,
-    facture,
-    accident,
+    clientId,
+    contractId,
+    factureId,
+    accidentId,
     remainingAmount,
     paymentType,
     amountPaid,
     existingDocuments: existingDocumentsString,
   } = req.body;
 
-  const clientPayment = await ClientPayment.findById(req.params.id);
+  const clientPayment = await ClientPayment.findByPk(req.params.id);
 
   if (clientPayment) {
-    if (paymentNumber !== undefined) clientPayment.paymentNumber = paymentNumber;
-    if (paymentDate !== undefined) clientPayment.paymentDate = paymentDate;
-    if (paymentFor !== undefined) clientPayment.paymentFor = paymentFor;
-    if (referenceNumber !== undefined) clientPayment.referenceNumber = referenceNumber;
-    if (client !== undefined) clientPayment.client = client;
-    if (contract !== undefined) clientPayment.contract = contract;
-    if (facture !== undefined) clientPayment.facture = facture;
-    if (accident !== undefined) clientPayment.accident = accident;
-    if (remainingAmount !== undefined) clientPayment.remainingAmount = remainingAmount;
-    if (paymentType !== undefined) clientPayment.paymentType = paymentType;
-    if (amountPaid !== undefined) clientPayment.amountPaid = amountPaid;
+    const updatedData = {};
+    if (paymentNumber !== undefined) updatedData.paymentNumber = paymentNumber;
+    if (paymentDate !== undefined) updatedData.paymentDate = paymentDate;
+    if (paymentFor !== undefined) updatedData.paymentFor = paymentFor;
+    if (referenceNumber !== undefined) updatedData.referenceNumber = referenceNumber;
+    if (clientId !== undefined) updatedData.clientId = clientId;
+    if (contractId !== undefined) updatedData.contractId = contractId;
+    if (factureId !== undefined) updatedData.factureId = factureId;
+    if (accidentId !== undefined) updatedData.accidentId = accidentId;
+    if (remainingAmount !== undefined) updatedData.remainingAmount = remainingAmount;
+    if (paymentType !== undefined) updatedData.paymentType = paymentType;
+    if (amountPaid !== undefined) updatedData.amountPaid = amountPaid;
 
     let existingDocuments = [];
     if (existingDocumentsString) {
@@ -161,24 +161,17 @@ const updateClientPayment = asyncHandler(async (req, res) => {
       url: file.path.replace(/\\/g, '/'),
     })) : [];
 
-    clientPayment.documents = [...existingDocuments, ...newDocuments];
+    updatedData.documents = [...existingDocuments, ...newDocuments];
 
-    const updatedClientPayment = await clientPayment.save();
-    const populatedPayment = await ClientPayment.findById(updatedClientPayment._id)
-      .populate('client')
-      .populate({
-        path: 'contract',
-        populate: {
-          path: 'client'
-        }
-      })
-      .populate({
-        path: 'facture',
-        populate: {
-          path: 'client'
-        }
-      })
-      .populate('accident');
+    await clientPayment.update(updatedData);
+    const populatedPayment = await ClientPayment.findByPk(clientPayment.id, {
+      include: [
+        { model: Customer, as: 'client' },
+        { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }] },
+        { model: Facture, as: 'facture', include: [{ model: Customer, as: 'client' }] },
+        { model: Accident, as: 'accident' },
+      ],
+    });
     res.json(populatedPayment);
   } else {
     res.status(404);
@@ -190,10 +183,10 @@ const updateClientPayment = asyncHandler(async (req, res) => {
 // @route   DELETE /api/clientpayments/:id
 // @access  Private
 const deleteClientPayment = asyncHandler(async (req, res) => {
-  const clientPayment = await ClientPayment.findById(req.params.id);
+  const clientPayment = await ClientPayment.findByPk(req.params.id);
 
   if (clientPayment) {
-    await clientPayment.deleteOne();
+    await clientPayment.destroy();
     res.json({ message: 'Client payment removed' });
   } else {
     res.status(404);
@@ -206,7 +199,7 @@ const deleteClientPayment = asyncHandler(async (req, res) => {
 // @access  Private
 const removePaymentDocument = asyncHandler(async (req, res) => {
   const { documentUrl } = req.body;
-  const clientPayment = await ClientPayment.findById(req.params.id);
+  const clientPayment = await ClientPayment.findByPk(req.params.id);
 
   if (clientPayment) {
     let filePathToDelete = '';
@@ -214,13 +207,13 @@ const removePaymentDocument = asyncHandler(async (req, res) => {
 
     if (documentIndex > -1) {
       filePathToDelete = clientPayment.documents[documentIndex].url;
-      clientPayment.documents.splice(documentIndex, 1);
+      const docs = [...clientPayment.documents];
+      docs.splice(documentIndex, 1);
+      await clientPayment.update({ documents: docs });
     } else {
       res.status(404);
       throw new Error('Document not found in this payment record');
     }
-
-    await clientPayment.save();
 
     if (filePathToDelete) {
       const fullPath = path.join(__dirname, '..', '..', filePathToDelete);
@@ -231,7 +224,15 @@ const removePaymentDocument = asyncHandler(async (req, res) => {
       });
     }
 
-    res.json({ message: 'Document removed successfully', clientPayment });
+    const refreshed = await ClientPayment.findByPk(req.params.id, {
+      include: [
+        { model: Customer, as: 'client' },
+        { model: Contract, as: 'contract', include: [{ model: Customer, as: 'client' }] },
+        { model: Facture, as: 'facture', include: [{ model: Customer, as: 'client' }] },
+        { model: Accident, as: 'accident' },
+      ],
+    });
+    res.json({ message: 'Document removed successfully', clientPayment: refreshed });
   } else {
     res.status(404);
     throw new Error('Client payment not found');

@@ -1,5 +1,11 @@
 const asyncHandler = require('express-async-handler');
-const Customer = require('../models/Customer');
+const Customer = require('../models/Customer.model');
+const Contract = require('../models/Contract.model');
+const Reservation = require('../models/Reservation.model');
+const ClientPayment = require('../models/ClientPayment.model');
+const Facture = require('../models/Facture.model');
+const Accident = require('../models/Accident.model');
+const Infraction = require('../models/Infraction.model');
 const fs = require('fs');
 const path = require('path');
 
@@ -7,7 +13,7 @@ const path = require('path');
 // @route   GET /api/customers
 // @access  Private
 const getCustomers = asyncHandler(async (req, res) => {
-  const customers = await Customer.find({});
+  const customers = await Customer.findAll();
   res.status(200).json(customers);
 });
 
@@ -15,7 +21,16 @@ const getCustomers = asyncHandler(async (req, res) => {
 // @route   GET /api/customers/:id
 // @access  Private
 const getCustomerById = asyncHandler(async (req, res) => {
-  const customer = await Customer.findById(req.params.id);
+  const customer = await Customer.findByPk(req.params.id, {
+    include: [
+      { model: Contract, as: 'contracts' },
+      { model: Reservation, as: 'reservations' },
+      { model: ClientPayment, as: 'payments' },
+      { model: Facture, as: 'factures' },
+      { model: Accident, as: 'accidents' },
+      { model: Infraction, as: 'infractions' },
+    ],
+  });
 
   if (customer) {
     res.json(customer);
@@ -41,12 +56,7 @@ const createCustomer = asyncHandler(async (req, res) => {
     });
   }
 
-  const customer = new Customer({
-    ...req.body, // Spread all text fields from req.body
-    documents: newDocuments, // Assign the new documents array
-  });
-
-  const createdCustomer = await customer.save();
+  const createdCustomer = await Customer.create({ ...req.body, documents: newDocuments });
   res.status(201).json(createdCustomer);
 });
 
@@ -54,7 +64,7 @@ const createCustomer = asyncHandler(async (req, res) => {
 // @route   PUT /api/customers/:id
 // @access  Private
 const updateCustomer = asyncHandler(async (req, res) => {
-  let customer = await Customer.findById(req.params.id);
+  let customer = await Customer.findByPk(req.params.id);
 
   if (!customer) {
     res.status(404);
@@ -97,14 +107,25 @@ const updateCustomer = asyncHandler(async (req, res) => {
   }
 
   // Update customer fields
+  const updatedData = {};
   for (const key in req.body) {
     if (key !== 'documents' && key !== 'documentsToDelete') {
-      customer[key] = req.body[key];
+      updatedData[key] = req.body[key];
     }
   }
-  customer.documents = updatedDocuments;
+  updatedData.documents = updatedDocuments;
 
-  const updatedCustomer = await customer.save();
+  await customer.update(updatedData);
+  const updatedCustomer = await Customer.findByPk(req.params.id, {
+    include: [
+      { model: Contract, as: 'contracts' },
+      { model: Reservation, as: 'reservations' },
+      { model: ClientPayment, as: 'payments' },
+      { model: Facture, as: 'factures' },
+      { model: Accident, as: 'accidents' },
+      { model: Infraction, as: 'infractions' },
+    ],
+  });
   res.json(updatedCustomer);
 });
 
@@ -112,7 +133,7 @@ const updateCustomer = asyncHandler(async (req, res) => {
 // @route   DELETE /api/customers/:id
 // @access  Private
 const deleteCustomer = asyncHandler(async (req, res) => {
-  const customer = await Customer.findById(req.params.id);
+  const customer = await Customer.findByPk(req.params.id);
 
   if (customer) {
     // Delete associated files from the server's uploads directory
@@ -125,8 +146,8 @@ const deleteCustomer = asyncHandler(async (req, res) => {
       }
     }
 
-    await customer.deleteOne();
-    res.json({ message: 'Customer removed' });
+  await customer.destroy();
+  res.json({ message: 'Customer removed' });
   } else {
     res.status(404);
     throw new Error('Customer not found');

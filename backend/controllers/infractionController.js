@@ -1,6 +1,6 @@
 const asyncHandler = require('express-async-handler');
-const Infraction = require('../models/Infraction');
-const mongoose = require('mongoose'); // Add this line
+const Infraction = require('../models/Infraction.model');
+const { Vehicle, Customer } = require('../models');
 const path = require('path');
 const fs = require('fs');
 
@@ -8,7 +8,13 @@ const fs = require('fs');
 // @route   GET /api/infractions
 // @access  Private
 const getInfractions = asyncHandler(async (req, res) => {
-  const infractions = await Infraction.find({}).populate('vehicle').populate('customer');
+  const infractions = await Infraction.findAll({
+    order: [['createdAt', 'DESC']],
+    include: [
+      { model: Vehicle, as: 'vehicle' },
+      { model: Customer, as: 'client' },
+    ],
+  });
   res.status(200).json(infractions);
 });
 
@@ -16,66 +22,56 @@ const getInfractions = asyncHandler(async (req, res) => {
 // @route   GET /api/infractions/:id
 // @access  Private
 const getInfractionById = asyncHandler(async (req, res) => {
-  const infraction = await Infraction.findById(req.params.id).populate('vehicle').populate('customer');
-
-  if (infraction) {
-    res.json(infraction);
-  } else {
-    res.status(404);
-    throw new Error('Infraction not found');
-  }
+  const infraction = await Infraction.findByPk(req.params.id, {
+    include: [
+      { model: Vehicle, as: 'vehicle' },
+      { model: Customer, as: 'client' },
+    ],
+  });
+  if (infraction) res.json(infraction); else { res.status(404); throw new Error('Infraction not found'); }
 });
+
+// helper to populate relations
+const populateInfraction = async (infraction) => {
+  return await Infraction.findByPk(infraction.id, {
+    include: [
+      { model: Vehicle, as: 'vehicle' },
+      { model: Customer, as: 'client' },
+    ],
+  });
+};
 
 // @desc    Create an infraction
 // @route   POST /api/infractions
 // @access  Private
 const createInfraction = asyncHandler(async (req, res) => {
-  console.log('Received request body:', req.body);
-  console.log('Received files:', req.files);
-
-  const { 
-    vehicle: vehicleId, customer: customerId, infractionDate, timeInfraction, 
-    location, date, permis, cin, passeport, type, societe, 
-    telephone, telephone2, description, amount, status, infractionNumber // Remove infractionNumber from here
+  const {
+    vehicleId, customerId, infractionDate, timeInfraction,
+    location, date: faitLe, permis, cin, passeport, type, societe,
+    telephone, telephone2, description, amount, status,
   } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(vehicleId) || !mongoose.Types.ObjectId.isValid(customerId)) {
-    res.status(400);
-    throw new Error('Invalid Vehicle or Customer ID');
-  }
-
-  const parsedDateInfraction = new Date(infractionDate);
-  const parsedFaitLe = new Date(date);
+  const parsedDateInfraction = infractionDate ? new Date(infractionDate) : null;
+  const parsedFaitLe = faitLe ? new Date(faitLe) : null;
 
   const newDocuments = req.files ? req.files.map(file => ({
     name: file.originalname,
-    url: `/uploads/${file.filename}`, // Adjust path as per your file serving setup
+    url: `/uploads/${file.filename}`,
     type: file.mimetype,
     size: file.size,
   })) : [];
 
-  const Vehicle = mongoose.model('Vehicle');
-  const Customer = mongoose.model('Customer');
-
-  const vehicle = await Vehicle.findById(vehicleId);
-  const customer = await Customer.findById(customerId);
-
-  if (!vehicle || !customer) {
-    res.status(400);
-    throw new Error('Vehicle or Customer not found');
-  }
-  
-  const latestInfraction = await Infraction.findOne().sort({ createdAt: -1 });
+  // generate infraction number
+  const latest = await Infraction.findOne({ order: [['createdAt', 'DESC']] });
   let newInfractionNumber = 'INF-00001';
-
-  if (latestInfraction && latestInfraction.infractionNumber) {
-    const lastNumber = parseInt(latestInfraction.infractionNumber.split('-')[1]);
+  if (latest && latest.infractionNumber) {
+    const lastNumber = parseInt(latest.infractionNumber.split('-')[1]);
     newInfractionNumber = `INF-${String(lastNumber + 1).padStart(5, '0')}`;
   }
 
-  const infraction = new Infraction({
-    vehicle: vehicle._id,
-    customer: customer._id,
+  const infraction = await Infraction.create({
+    vehicleId,
+    customerId,
     infractionDate: parsedDateInfraction,
     infractionNumber: newInfractionNumber,
     timeInfraction,
@@ -94,99 +90,72 @@ const createInfraction = asyncHandler(async (req, res) => {
     status,
   });
 
-  const createdInfraction = await infraction.save();
-  await createdInfraction.populate('vehicle');
-  await createdInfraction.populate('customer');
-  res.status(201).json(createdInfraction);
+  const populated = await populateInfraction(infraction);
+  res.status(201).json(populated);
 });
 
 // @desc    Update an infraction
 // @route   PUT /api/infractions/:id
 // @access  Private
 const updateInfraction = asyncHandler(async (req, res) => {
-  console.log('Received request body for update:', req.body);
-  console.log('Received files for update:', req.files);
-
-  const { 
-    vehicle: vehicleId, customer: customerId, infractionDate, timeInfraction, 
-    location, date, permis, cin, passeport, type, societe, 
-    telephone, telephone2, description, amount, status, existingDocuments, infractionNumber // Remove infractionNumber from here
+  const {
+    vehicleId, customerId, infractionDate, timeInfraction,
+    location, date: faitLe, permis, cin, passeport, type, societe,
+    telephone, telephone2, description, amount, status, existingDocuments,
   } = req.body;
 
-  if (!mongoose.Types.ObjectId.isValid(vehicleId) || !mongoose.Types.ObjectId.isValid(customerId)) {
-    res.status(400);
-    throw new Error('Invalid Vehicle or Customer ID');
-  }
-
-  const infraction = await Infraction.findById(req.params.id);
-
-  if (infraction) {
-    const Vehicle = mongoose.model('Vehicle');
-    const Customer = mongoose.model('Customer');
-
-    const vehicle = await Vehicle.findById(vehicleId);
-    const customer = await Customer.findById(customerId);
-
-    if (!vehicle || !customer) {
-      res.status(400);
-      throw new Error('Vehicle or Customer not found');
-    }
-
-    infraction.vehicle = vehicle._id;
-    infraction.customer = customer._id;
-    infraction.infractionDate = new Date(infractionDate);
-    infraction.timeInfraction = timeInfraction;
-    infraction.location = location;
-    infraction.date = new Date(date);
-    infraction.permis = permis;
-    infraction.cin = cin;
-    infraction.passeport = passeport;
-    infraction.type = type;
-    infraction.societe = societe;
-    infraction.telephone = telephone;
-    infraction.telephone2 = telephone2;
-    infraction.description = description;
-    infraction.amount = amount;
-    infraction.status = status;
-
-    // Handle new document uploads
-    const newDocuments = req.files ? req.files.map(file => ({
-      name: file.originalname,
-      url: `/uploads/${file.filename}`,
-      type: file.mimetype,
-      size: file.size,
-    })) : [];
-
-    // Filter out documents that were removed from the frontend
-    const currentExistingDocuments = Array.isArray(existingDocuments) ? existingDocuments : (existingDocuments ? [existingDocuments] : []);
-    infraction.documents = infraction.documents.filter(doc => currentExistingDocuments.includes(doc.url));
-    infraction.documents.push(...newDocuments);
-
-    const updatedInfraction = await infraction.save();
-    await updatedInfraction.populate('vehicle');
-    await updatedInfraction.populate('customer');
-    res.json(updatedInfraction);
-  } else {
+  const infraction = await Infraction.findByPk(req.params.id);
+  if (!infraction) {
     res.status(404);
     throw new Error('Infraction not found');
   }
+
+  const updatedData = {};
+  if (vehicleId !== undefined) updatedData.vehicleId = vehicleId;
+  if (customerId !== undefined) updatedData.customerId = customerId;
+  if (infractionDate !== undefined) updatedData.infractionDate = new Date(infractionDate);
+  if (timeInfraction !== undefined) updatedData.timeInfraction = timeInfraction;
+  if (location !== undefined) updatedData.location = location;
+  if (faitLe !== undefined) updatedData.date = new Date(faitLe);
+  if (permis !== undefined) updatedData.permis = permis;
+  if (cin !== undefined) updatedData.cin = cin;
+  if (passeport !== undefined) updatedData.passeport = passeport;
+  if (type !== undefined) updatedData.type = type;
+  if (societe !== undefined) updatedData.societe = societe;
+  if (telephone !== undefined) updatedData.telephone = telephone;
+  if (telephone2 !== undefined) updatedData.telephone2 = telephone2;
+  if (description !== undefined) updatedData.description = description;
+  if (amount !== undefined) updatedData.amount = amount;
+  if (status !== undefined) updatedData.status = status;
+
+  const currentExistingDocuments = Array.isArray(existingDocuments) ? existingDocuments : (existingDocuments ? [existingDocuments] : []);
+  const newDocuments = req.files ? req.files.map(file => ({ name: file.originalname, url: `/uploads/${file.filename}`, type: file.mimetype, size: file.size })) : [];
+
+  // merge documents: keep only those still present in existingDocuments
+  const kept = infraction.documents ? infraction.documents.filter(doc => currentExistingDocuments.includes(doc.url)) : [];
+  updatedData.documents = [...kept, ...newDocuments];
+
+  await infraction.update(updatedData);
+  const refreshed = await Infraction.findByPk(infraction.id, {
+    include: [
+      { model: Vehicle, as: 'vehicle' },
+      { model: Customer, as: 'client' },
+    ],
+  });
+  res.json(refreshed);
 });
 
 // @desc    Delete an infraction
 // @route   DELETE /api/infractions/:id
 // @access  Private
 const deleteInfraction = asyncHandler(async (req, res) => {
-  const infraction = await Infraction.findById(req.params.id);
-
+  const infraction = await Infraction.findByPk(req.params.id);
   if (infraction) {
-    // Delete associated files from the uploads directory
     infraction.documents.forEach(doc => {
       const filePath = path.join(__dirname, '..', doc.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
     });
-    await infraction.deleteOne();
+    await infraction.destroy();
     res.json({ message: 'Infraction removed' });
   } else {
     res.status(404);
@@ -199,19 +168,15 @@ const deleteInfraction = asyncHandler(async (req, res) => {
 // @access  Private
 const deleteInfractionDocument = asyncHandler(async (req, res) => {
   const { documentName } = req.body;
-  const infraction = await Infraction.findById(req.params.id);
-
+  const infraction = await Infraction.findByPk(req.params.id);
   if (infraction) {
     const documentToDelete = infraction.documents.find(doc => doc.name === documentName);
-
     if (documentToDelete) {
       const filePath = path.join(__dirname, '..', documentToDelete.url);
-      if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-      }
-      infraction.documents = infraction.documents.filter(doc => doc.name !== documentName);
-      await infraction.save();
-      res.json({ message: 'Document removed successfully', infraction });
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
+      const remaining = infraction.documents.filter(doc => doc.name !== documentName);
+      await infraction.update({ documents: remaining });
+      res.json({ message: 'Document removed successfully', infraction: await populateInfraction(infraction) });
     } else {
       res.status(404);
       throw new Error('Document not found');
