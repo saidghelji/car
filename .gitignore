@@ -29,3 +29,12 @@ uploads/
 
 # Explicit backend uploads
 backend/uploads/
+
+# Build outputs
+frontend/build/
+
+# Local env files
+backend/.env
+
+# Temp helper scripts
+backend/tmp_*.js
